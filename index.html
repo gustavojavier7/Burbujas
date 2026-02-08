@@ -347,16 +347,22 @@
     }
 
     function startTicker() {
-      function scrollTicker() {
-        tickerPosition -= tickerSpeed;
-        if (tickerPosition <= -tickerContent.scrollWidth / 2) {
-          tickerPosition = 0;
-        }
-        tickerContent.style.transform = `translateX(${tickerPosition}px)`;
-        requestAnimationFrame(scrollTicker);
-      }
-      scrollTicker();
+  function scrollTicker() {
+    tickerPosition -= tickerSpeed;
+    
+    // Resetear suavemente cuando llegamos al final del primer set de items
+    // En lugar de scrollWidth/2, usar el ancho real de un set completo
+    const singleSetWidth = tickerContent.scrollWidth / 2;
+    
+    if (Math.abs(tickerPosition) >= singleSetWidth) {
+      tickerPosition = 0;
     }
+    
+    tickerContent.style.transform = `translateX(${tickerPosition}px)`;
+    requestAnimationFrame(scrollTicker);
+  }
+  scrollTicker();
+}
 
     async function updateTicker() {
       try {
