@@ -49,34 +49,27 @@
     }
 
     .ticker-content {
-      display: inline-flex;
-      animation: scroll-left var(--ticker-duration) linear infinite;
+      position: relative;
+      height: 1.5em;
       will-change: transform;
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.95em;
     }
 
-    @keyframes scroll-left {
-      from {
-        transform: translateX(0);
-      }
-      to {
-        transform: translateX(-33.33%);
-      }
-    }
-
     .ticker-item {
-      display: inline-block;
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: inline-flex;
+      align-items: center;
       padding: 0 25px;
       border-right: 1px solid var(--border-color);
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 0.4s ease;
     }
     .ticker-item:last-child { border-right: none; }
     .ticker-item span { margin-right: 8px; }
-
-    /* Pausar al pasar el mouse */
-    .ticker-container:hover .ticker-content {
-      animation-play-state: paused;
-    }
 
     /* --- LAYOUT PRINCIPAL --- */
     .dashboard-grid {
@@ -319,6 +312,7 @@
     const MAX_LIQUIDATIONS = 50;
     const MAX_LIQUIDATIONS_MEMORY = 100;
     const TICKER_ANIMATION_DURATION = 40000; // 40 segundos (fallback)
+    const TICKER_ITEM_GAP = 40;
 
     let tickerContent = document.getElementById("ticker");
     let liquidations = [];
@@ -329,9 +323,13 @@
     let liquidationValues = [];
     let latestTop3Snapshot = [];
     let tickerTop3Snapshot = [];
-    let tickerUpdatePending = false;
-    let pendingTickerSnapshot = null;
-    let tickerAnimationStart = null;
+    const tickerState = {
+      items: [],
+      pendingQueue: [],
+      speedPxPerSec: 0,
+      lastFrameTime: null,
+      containerWidth: 0
+    };
 
     function calculateAverageLiquidation() {
       if (liquidationValues.length === 0) return 0;
@@ -394,7 +392,7 @@
         const futuresData = await futuresResponse.json();
         const indexData = await indexResponse.json();
 
-        pendingTickerSnapshot = buildTickerSnapshot(
+        const snapshot = buildTickerSnapshot(
           {
             ticker24Hr: tickerData,
             spot: spotData,
@@ -403,95 +401,96 @@
           },
           latestTop3Snapshot
         );
-        
-        tickerUpdatePending = true;
+        enqueueTickerSnapshot(snapshot);
 
       } catch (error) {
         console.error("Error al obtener los datos del ticker:", error);
       }
     }
 
-    async function updateTickerDOM() {
-      if (!tickerUpdatePending || !pendingTickerSnapshot) return;
+    function updateTickerMetrics() {
+      const durationMs = getTickerDurationMs();
+      tickerState.containerWidth = tickerContent.getBoundingClientRect().width;
+      const safeDurationMs = durationMs > 0 ? durationMs : TICKER_ANIMATION_DURATION;
+      tickerState.speedPxPerSec = tickerState.containerWidth / (safeDurationMs / 1000);
+    }
 
-      const newItems = pendingTickerSnapshot.map(data => (
-        createTickerItem(data.label, data.price, data.change, data.color)
-      ));
-
-      const clonedItems = newItems.map(item => item.cloneNode(true));
-      const clonedItemsAgain = newItems.map(item => item.cloneNode(true));
-
-      const allItems = [...newItems, ...clonedItems, ...clonedItemsAgain];
-
-      const previousWidth = tickerContent.getBoundingClientRect().width;
-      const previousTransform = getComputedStyle(tickerContent).transform;
-      const previousTranslateX = getTranslateX(previousTransform);
-      const elapsed = getTickerElapsedMs();
-
-      tickerContent.innerHTML = '';
-      allItems.forEach(item => tickerContent.appendChild(item));
-
-      tickerContent.style.animation = 'none';
-      tickerContent.style.animationDelay = '0s';
-      tickerContent.style.transition = 'none';
-
-      const newWidth = tickerContent.getBoundingClientRect().width;
-      const progress = previousWidth > 0
-        ? Math.min(Math.max(Math.abs(previousTranslateX) / previousWidth, 0), 1)
-        : 0;
-      const targetTranslateX = -newWidth * progress;
-
-      tickerContent.style.transform = `translateX(${previousTranslateX}px)`;
-      tickerContent.offsetHeight;
-
-      if (previousWidth > 0) {
-        tickerContent.style.transition = 'transform 0.35s ease';
-        requestAnimationFrame(() => {
-          tickerContent.style.transform = `translateX(${targetTranslateX}px)`;
-        });
-        tickerContent.addEventListener('transitionend', () => {
-          tickerContent.style.transition = '';
-          tickerContent.style.transform = '';
-          setTickerAnimation(elapsed);
-        }, { once: true });
-      } else {
-        tickerContent.style.transform = '';
-        setTickerAnimation(elapsed);
-      }
-
-      tickerTop3Snapshot = pendingTickerSnapshot
+    function enqueueTickerSnapshot(snapshot) {
+      snapshot.forEach(item => tickerState.pendingQueue.push(item));
+      tickerTop3Snapshot = snapshot
         .filter(item => item.type === 'top3')
         .map(item => item.symbol);
-      tickerUpdatePending = false;
-      pendingTickerSnapshot = null;
     }
 
-    tickerContent.addEventListener('animationiteration', () => {
-      if (getComputedStyle(tickerContent).animationPlayState === 'paused') return;
-      if (tickerUpdatePending) updateTickerDOM();
-    });
+    function addNextTickerItem() {
+      if (tickerState.pendingQueue.length === 0) return;
+      const data = tickerState.pendingQueue.shift();
+      const itemEl = createTickerItem(data.label, data.price, data.change, data.color);
+      tickerContent.appendChild(itemEl);
+      const itemWidth = itemEl.getBoundingClientRect().width;
 
-    function getTranslateX(transformValue) {
-      if (!transformValue || transformValue === 'none') return 0;
-      const match = transformValue.match(/matrix\(([^)]+)\)/);
-      if (!match) return 0;
-      const parts = match[1].split(',').map(value => parseFloat(value.trim()));
-      return Number.isFinite(parts[4]) ? parts[4] : 0;
+      const lastItem = tickerState.items[tickerState.items.length - 1];
+      const baseX = tickerState.containerWidth + TICKER_ITEM_GAP;
+      const startX = lastItem
+        ? Math.max(lastItem.x + lastItem.width + TICKER_ITEM_GAP, baseX)
+        : baseX;
+
+      const tickerItem = { el: itemEl, x: startX, width: itemWidth };
+      tickerState.items.push(tickerItem);
+      itemEl.style.transform = `translateX(${tickerItem.x}px)`;
+
+      requestAnimationFrame(() => {
+        itemEl.style.opacity = '1';
+      });
     }
 
-    function getTickerElapsedMs() {
-      if (!tickerAnimationStart) return 0;
-      return performance.now() - tickerAnimationStart;
+    function runTickerAnimation(timestamp) {
+      if (!tickerState.lastFrameTime) {
+        tickerState.lastFrameTime = timestamp;
+      }
+      const deltaSeconds = (timestamp - tickerState.lastFrameTime) / 1000;
+      tickerState.lastFrameTime = timestamp;
+      const distance = tickerState.speedPxPerSec * deltaSeconds;
+
+      tickerState.items.forEach(item => {
+        item.x -= distance;
+        item.el.style.transform = `translateX(${item.x}px)`;
+      });
+
+      while (
+        tickerState.items.length > 0 &&
+        tickerState.items[0].x + tickerState.items[0].width < -TICKER_ITEM_GAP
+      ) {
+        const removed = tickerState.items.shift();
+        removed.el.remove();
+      }
+
+      const lastItem = tickerState.items[tickerState.items.length - 1];
+      const canAdd = !lastItem
+        || lastItem.x + lastItem.width + TICKER_ITEM_GAP < tickerState.containerWidth + TICKER_ITEM_GAP;
+      if (tickerState.pendingQueue.length > 0 && canAdd) {
+        addNextTickerItem();
+      }
+
+      requestAnimationFrame(runTickerAnimation);
     }
 
-    function setTickerAnimation(elapsedMs = 0) {
-      const durationMs = getTickerDurationMs();
-      const safeDurationMs = durationMs > 0 ? durationMs : TICKER_ANIMATION_DURATION;
-      const normalizedElapsed = ((elapsedMs % safeDurationMs) + safeDurationMs) % safeDurationMs;
-      tickerAnimationStart = performance.now() - normalizedElapsed;
-
-      tickerContent.style.animation = `scroll-left ${safeDurationMs / 1000}s linear infinite`;
-      tickerContent.style.animationDelay = `-${normalizedElapsed / 1000}s`;
+    function initializeTicker() {
+      tickerContent.innerHTML = '';
+      tickerState.items = [];
+      tickerState.pendingQueue = [];
+      tickerState.lastFrameTime = null;
+      updateTickerMetrics();
+      enqueueTickerSnapshot([
+        {
+          label: 'Cargando datos del mercado...',
+          price: '',
+          change: undefined,
+          color: 'var(--text-muted)'
+        }
+      ]);
+      addNextTickerItem();
+      requestAnimationFrame(runTickerAnimation);
     }
 
     function buildTickerSnapshot(tickerData, top3Snapshot = []) {
@@ -822,9 +821,14 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-      fetchTickerData().then(() => updateTickerDOM());
+      initializeTicker();
+      fetchTickerData();
       setInterval(fetchTickerData, 60000);
       connectLiquidationWebSocket();
+    });
+
+    window.addEventListener('resize', () => {
+      updateTickerMetrics();
     });
   </script>
 </body>
