@@ -170,6 +170,7 @@
     .stats-row {
       display: flex;
       justify-content: space-between;
+      align-items: center;
       padding: 12px 0;
       border-bottom: 1px solid var(--border-color);
       font-family: 'JetBrains Mono', monospace;
@@ -185,21 +186,36 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 12px;
-      margin-bottom: 10px;
+      gap: 10px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
       background: rgba(255,255,255,0.03);
       border-radius: 8px;
       border-left: 4px solid var(--color-accent);
       font-family: 'JetBrains Mono', monospace;
-      font-size: 0.9em;
+      font-size: 0.85em;
     }
 
     .top-item div {
       display: flex;
       flex-direction: column;
+      gap: 2px;
     }
-    .top-item .top-symbol { font-weight: bold; font-size: 1.1em; color: var(--text-main); }
-    .top-item .top-detail { color: var(--text-muted); font-size: 0.85em; margin-top: 4px; }
+
+    .top-item .top-symbol { 
+      font-weight: bold; 
+      font-size: 1em; 
+      color: var(--text-main);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .top-item .top-detail { 
+      color: var(--text-muted); 
+      font-size: 0.8em;
+      white-space: nowrap;
+    }
 
     /* Utilidades de color */
     .long-color { color: var(--color-long) !important; }
@@ -300,7 +316,8 @@
     let longTotal = 0;
     let shortTotal = 0;
     let largestLiquidation = { amount: 0, symbol: '', side: '' };
-    let liquidationValues = []; // Para calcular la media móvil
+    let liquidationValues = [];
+    let lastTop3 = [];
 
     function calculateAverageLiquidation() {
       if (liquidationValues.length === 0) return 0;
@@ -310,12 +327,23 @@
 
     function isHugeLiquidation(value) {
       const average = calculateAverageLiquidation();
-      // Si no hay suficientes datos, usar umbral fijo inicial de $50k
       if (liquidationValues.length < 10) {
         return value > 50000;
       }
-      // Liquidación es "huge" si supera 150% de la media
       return value > (average * 1.5);
+    }
+
+    function hasTop3Changed() {
+      const currentTop3 = Object.keys(liquidationFrequency)
+        .sort((a, b) => liquidationFrequency[b].count - liquidationFrequency[a].count)
+        .slice(0, 3)
+        .join(',');
+      
+      if (currentTop3 !== lastTop3.join(',')) {
+        lastTop3 = currentTop3.split(',');
+        return true;
+      }
+      return false;
     }
 
     function startTicker() {
@@ -431,139 +459,133 @@
     }
 
     function connectLiquidationWebSocket() {
-  const liquidationContent = document.getElementById('liquidation-content');
-  const ws = new WebSocket('wss://fstream.binance.com/ws/!forceOrder@arr');
+      const liquidationContent = document.getElementById('liquidation-content');
+      const ws = new WebSocket('wss://fstream.binance.com/ws/!forceOrder@arr');
 
-  ws.onmessage = function(event) {
-    const data = JSON.parse(event.data);
-    const liquidation = data.o;
+      ws.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        const liquidation = data.o;
 
-    if (liquidation) {
-      // Parsear valores correctamente
-      const price = parseFloat(liquidation.p);
-      const quantity = parseFloat(liquidation.q);
-      
-      // Validar que los valores sean números válidos
-      if (isNaN(price) || isNaN(quantity)) {
-        console.error("Valores inválidos:", liquidation);
-        return;
-      }
+        if (liquidation) {
+          const price = parseFloat(liquidation.p);
+          const quantity = parseFloat(liquidation.q);
+          
+          if (isNaN(price) || isNaN(quantity)) {
+            console.error("Valores inválidos:", liquidation);
+            return;
+          }
 
-      const newLiquidation = {
-        symbol: liquidation.s,
-        price: price,
-        quantity: quantity,
-        side: liquidation.S
+          const newLiquidation = {
+            symbol: liquidation.s,
+            price: price,
+            quantity: quantity,
+            side: liquidation.S
+          };
+
+          liquidations.unshift(newLiquidation);
+
+          if (liquidations.length > MAX_LIQUIDATIONS_MEMORY) {
+            liquidations.pop();
+          }
+
+          const liqValue = price * quantity;
+          
+          liquidationValues.push(liqValue);
+          
+          if (liquidationValues.length > MAX_LIQUIDATIONS_MEMORY) {
+            liquidationValues.shift();
+          }
+
+          liquidationFrequency = {};
+          liquidations.forEach(liq => {
+            if (!liquidationFrequency[liq.symbol]) {
+              liquidationFrequency[liq.symbol] = { count: 0, total: 0 };
+            }
+            liquidationFrequency[liq.symbol].count++;
+            liquidationFrequency[liq.symbol].total += liq.price;
+          });
+
+          longTotal = 0;
+          shortTotal = 0;
+          largestLiquidation = { amount: 0, symbol: '', side: '' };
+
+          liquidations.forEach(liq => {
+            const liqVal = liq.price * liq.quantity;
+            
+            if (liq.side === 'SELL') { 
+              longTotal += liqVal; 
+            } else { 
+              shortTotal += liqVal; 
+            }
+
+            if (liqVal > largestLiquidation.amount) {
+              largestLiquidation = { 
+                amount: liqVal, 
+                symbol: liq.symbol, 
+                side: liq.side 
+              };
+            }
+          });
+
+          updateStatsPanel();
+          showTopLiquidatedCoins();
+
+          if (hasTop3Changed()) {
+            updateTicker();
+          }
+
+          if (isHugeLiquidation(liqValue)) {
+            const audio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-alert-quick-chime-766.mp3');
+            audio.volume = 0.2;
+            audio.play().catch(() => {});
+            
+            const liqBox = document.querySelector('.liquidation-box');
+            const borderColor = liquidation.S === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
+            liqBox.style.borderColor = borderColor;
+            setTimeout(() => liqBox.style.borderColor = 'var(--border-color)', 500);
+          }
+
+          const item = document.createElement('div');
+          item.className = 'liquidation-item';
+
+          if (isHugeLiquidation(liqValue)) {
+            item.classList.add('huge');
+          }
+
+          const symbolSpan = document.createElement('span');
+          symbolSpan.textContent = liquidation.s;
+
+          const priceSpan = document.createElement('span');
+          priceSpan.textContent = `$${price.toFixed(2)}`;
+
+          const quantitySpan = document.createElement('span');
+          const totalValue = (liqValue / 1000).toFixed(1);
+          quantitySpan.textContent = `${quantity.toFixed(2)} ($${totalValue}k)`;
+
+          const liquidationColor = liquidation.S === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
+          item.style.color = liquidationColor;
+
+          item.appendChild(symbolSpan);
+          item.appendChild(priceSpan);
+          item.appendChild(quantitySpan);
+
+          liquidationContent.prepend(item);
+
+          if (liquidationContent.children.length > MAX_LIQUIDATIONS) {
+            liquidationContent.removeChild(liquidationContent.lastChild);
+          }
+        }
       };
 
-      liquidations.unshift(newLiquidation);
+      ws.onclose = function() {
+        console.error("Conexión de WebSocket cerrada, reconectando en 1s...");
+        setTimeout(connectLiquidationWebSocket, 1000);
+      };
 
-      if (liquidations.length > MAX_LIQUIDATIONS_MEMORY) {
-        liquidations.pop();
-      }
-
-      // Calcular valor de esta liquidación
-      const liqValue = price * quantity;
-      
-      // Agregar al array de valores para calcular media
-      liquidationValues.push(liqValue);
-      
-      // Mantener solo las últimas 100 para calcular la media
-      if (liquidationValues.length > MAX_LIQUIDATIONS_MEMORY) {
-        liquidationValues.shift();
-      }
-
-      // Recalcular frecuencias con las últimas 100
-      liquidationFrequency = {};
-      liquidations.forEach(liq => {
-        if (!liquidationFrequency[liq.symbol]) {
-          liquidationFrequency[liq.symbol] = { count: 0, total: 0 };
-        }
-        liquidationFrequency[liq.symbol].count++;
-        liquidationFrequency[liq.symbol].total += liq.price;
-      });
-
-      // Recalcular totales con las últimas 100
-      longTotal = 0;
-      shortTotal = 0;
-      largestLiquidation = { amount: 0, symbol: '', side: '' };
-
-      liquidations.forEach(liq => {
-        const liqVal = liq.price * liq.quantity;
-        
-        if (liq.side === 'SELL') { 
-          longTotal += liqVal; 
-        } else { 
-          shortTotal += liqVal; 
-        }
-
-        if (liqVal > largestLiquidation.amount) {
-          largestLiquidation = { 
-            amount: liqVal, 
-            symbol: liq.symbol, 
-            side: liq.side 
-          };
-        }
-      });
-
-      updateStatsPanel();
-      showTopLiquidatedCoins();
-
-      // ====== ALERTA SONORA CON UMBRAL DINÁMICO ======
-      if (isHugeLiquidation(liqValue)) {
-        const audio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-alert-quick-chime-766.mp3');
-        audio.volume = 0.2;
-        audio.play().catch(() => {});
-        
-        const liqBox = document.querySelector('.liquidation-box');
-        const borderColor = liquidation.S === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
-        liqBox.style.borderColor = borderColor;
-        setTimeout(() => liqBox.style.borderColor = 'var(--border-color)', 500);
-      }
-
-      // ====== RENDERIZAR EN UI ======
-      const item = document.createElement('div');
-      item.className = 'liquidation-item';
-
-      // Agregar clase 'huge' si supera 150% de la media
-      if (isHugeLiquidation(liqValue)) {
-        item.classList.add('huge');
-      }
-
-      const symbolSpan = document.createElement('span');
-      symbolSpan.textContent = liquidation.s;
-
-      const priceSpan = document.createElement('span');
-      priceSpan.textContent = `$${price.toFixed(2)}`;
-
-      const quantitySpan = document.createElement('span');
-      const totalValue = (liqValue / 1000).toFixed(1);
-      quantitySpan.textContent = `${quantity.toFixed(2)} ($${totalValue}k)`;
-
-      const liquidationColor = liquidation.S === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
-      item.style.color = liquidationColor;
-
-      item.appendChild(symbolSpan);
-      item.appendChild(priceSpan);
-      item.appendChild(quantitySpan);
-
-      liquidationContent.prepend(item);
-
-      if (liquidationContent.children.length > MAX_LIQUIDATIONS) {
-        liquidationContent.removeChild(liquidationContent.lastChild);
-      }
+      ws.onerror = function(error) {
+        console.error("Error en WebSocket:", error);
+      };
     }
-  };
-
-  ws.onclose = function() {
-    console.error("Conexión de WebSocket cerrada, reconectando en 1s...");
-    setTimeout(connectLiquidationWebSocket, 1000);
-  };
-
-  ws.onerror = function(error) {
-    console.error("Error en WebSocket:", error);
-  };
-}
 
     function showTopLiquidatedCoins() {
       const topLiquidated = Object.entries(liquidationFrequency)
@@ -573,35 +595,48 @@
       const topContent = document.getElementById('top-liquidated-content');
       topContent.innerHTML = '';
 
-      topLiquidated.forEach(([symbol, data]) => {
+      if (topLiquidated.length === 0) {
+        topContent.innerHTML = '<span style="color: var(--text-muted); font-size: 0.9em;">Esperando datos...</span>';
+        return;
+      }
+
+      topLiquidated.forEach(([symbol, data], index) => {
         const item = document.createElement('div');
         item.className = 'top-item';
 
         const leftDiv = document.createElement('div');
+        leftDiv.style.flex = '1';
+        leftDiv.style.minWidth = '0';
+        
         const symbolSpan = document.createElement('span');
         symbolSpan.className = 'top-symbol';
-        symbolSpan.textContent = symbol;
+        symbolSpan.textContent = `${index + 1}. ${symbol}`;
         
         const countSpan = document.createElement('span');
         countSpan.className = 'top-detail';
-        countSpan.textContent = `${data.count} liquidaciones`;
+        countSpan.textContent = `${data.count} liq.`;
         
         leftDiv.appendChild(symbolSpan);
         leftDiv.appendChild(countSpan);
 
         const rightDiv = document.createElement('div');
         rightDiv.style.alignItems = 'flex-end';
-        const avgLabel = document.createElement('span');
-        avgLabel.className = 'top-detail';
-        avgLabel.textContent = 'Precio Prom.';
+        rightDiv.style.textAlign = 'right';
+        rightDiv.style.minWidth = 'fit-content';
         
         const averagePrice = (data.total / data.count).toFixed(2);
         const avgPriceSpan = document.createElement('span');
         avgPriceSpan.style.fontFamily = "'JetBrains Mono', monospace";
+        avgPriceSpan.style.fontSize = '0.95em';
+        avgPriceSpan.style.fontWeight = 'bold';
         avgPriceSpan.textContent = `$${averagePrice}`;
         
-        rightDiv.appendChild(avgLabel);
+        const avgLabel = document.createElement('span');
+        avgLabel.className = 'top-detail';
+        avgLabel.textContent = 'prom.';
+        
         rightDiv.appendChild(avgPriceSpan);
+        rightDiv.appendChild(avgLabel);
 
         item.appendChild(leftDiv);
         item.appendChild(rightDiv);
@@ -610,54 +645,51 @@
       });
     }
 
-   function updateStatsPanel() {
-  const total = longTotal + shortTotal;
-  const longPercent = total > 0 ? ((longTotal / total) * 100).toFixed(1) : 0;
-  const shortPercent = total > 0 ? ((shortTotal / total) * 100).toFixed(1) : 0;
-  const ratio = shortTotal > 0 ? (longTotal / shortTotal).toFixed(2) : '0.00';
-  const avgLiquidation = liquidations.length > 0 ? ((longTotal + shortTotal) / liquidations.length).toFixed(0) : 0;
+    function updateStatsPanel() {
+      const total = longTotal + shortTotal;
+      const longPercent = total > 0 ? ((longTotal / total) * 100).toFixed(1) : 0;
+      const shortPercent = total > 0 ? ((shortTotal / total) * 100).toFixed(1) : 0;
+      const ratio = shortTotal > 0 ? (longTotal / shortTotal).toFixed(2) : '0.00';
+      const avgLiquidation = liquidations.length > 0 ? ((longTotal + shortTotal) / liquidations.length).toFixed(0) : 0;
 
-  document.getElementById('long-liquidated').textContent = `$${(longTotal / 1000).toFixed(1)}k (${longPercent}%)`;
-  document.getElementById('short-liquidated').textContent = `$${(shortTotal / 1000).toFixed(1)}k (${shortPercent}%)`;
-  document.getElementById('ratio-ls').textContent = ratio;
-  document.getElementById('avg-liquidation').textContent = `$${Number(avgLiquidation).toLocaleString()}`;
-  
-  const largestText = largestLiquidation.amount > 0 
-    ? `$${(largestLiquidation.amount / 1000).toFixed(1)}k ${largestLiquidation.symbol}` 
-    : '-';
-  
-  const largestElement = document.getElementById('largest-liquidation');
-  largestElement.textContent = largestText;
-  
-  // Corregir la asignación de clases
-  let classes = 'stats-value highlight';
-  if (largestLiquidation.amount > 0) {
-    classes += largestLiquidation.side === 'SELL' ? ' long-color' : ' short-color';
-  }
-  largestElement.className = classes;
+      document.getElementById('long-liquidated').textContent = `$${(longTotal / 1000).toFixed(1)}k (${longPercent}%)`;
+      document.getElementById('short-liquidated').textContent = `$${(shortTotal / 1000).toFixed(1)}k (${shortPercent}%)`;
+      document.getElementById('ratio-ls').textContent = ratio;
+      document.getElementById('avg-liquidation').textContent = `$${Number(avgLiquidation).toLocaleString()}`;
+      
+      const largestText = largestLiquidation.amount > 0 
+        ? `$${(largestLiquidation.amount / 1000).toFixed(1)}k ${largestLiquidation.symbol}` 
+        : '-';
+      
+      const largestElement = document.getElementById('largest-liquidation');
+      largestElement.textContent = largestText;
+      
+      let classes = 'stats-value highlight';
+      if (largestLiquidation.amount > 0) {
+        classes += largestLiquidation.side === 'SELL' ? ' long-color' : ' short-color';
+      }
+      largestElement.className = classes;
 
-  document.getElementById('total-count').textContent = liquidations.length;
-  
-  // Mostrar umbral dinámico
-  const average = calculateAverageLiquidation();
-  const threshold = average * 1.5;
-  const thresholdElement = document.getElementById('huge-threshold');
-  
-  if (thresholdElement) {
-    if (liquidationValues.length >= 10 && !isNaN(threshold) && threshold > 0) {
-      thresholdElement.textContent = `$${(threshold / 1000).toFixed(1)}k`;
-    } else {
-      thresholdElement.textContent = '$50k (calibrando...)';
+      document.getElementById('total-count').textContent = liquidations.length;
+      
+      const average = calculateAverageLiquidation();
+      const threshold = average * 1.5;
+      const thresholdElement = document.getElementById('huge-threshold');
+      
+      if (thresholdElement) {
+        if (liquidationValues.length >= 10 && !isNaN(threshold) && threshold > 0) {
+          thresholdElement.textContent = `$${(threshold / 1000).toFixed(1)}k`;
+        } else {
+          thresholdElement.textContent = '$50k (calibrando...)';
+        }
+      }
+      
+      const ratioBar = document.getElementById('ratio-bar');
+      if (ratioBar) {
+        const ratioPercent = total > 0 ? (longTotal / total * 100) : 50;
+        ratioBar.style.width = ratioPercent + '%';
+      }
     }
-  }
-  
-  // Actualizar barra del ratio
-  const ratioBar = document.getElementById('ratio-bar');
-  if (ratioBar) {
-    const ratioPercent = total > 0 ? (longTotal / total * 100) : 50;
-    ratioBar.style.width = ratioPercent + '%';
-  }
-}
 
     document.addEventListener('DOMContentLoaded', () => {
       updateTicker().then(() => startTicker());
