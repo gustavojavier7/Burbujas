@@ -17,7 +17,7 @@
       --color-long: #10b981;
       --color-short: #ef4444;
       --color-accent: #eab308;
-      --ticker-duration: 40s;
+      --ticker-duration: 60s;
     }
 
     * {
@@ -61,7 +61,7 @@
         transform: translateX(0);
       }
       to {
-        transform: translateX(-50%);
+        transform: translateX(-33.33%);
       }
     }
 
@@ -331,6 +331,7 @@
     let tickerTop3Snapshot = [];
     let tickerUpdatePending = false;
     let pendingTickerSnapshot = null;
+    let tickerAnimationStart = null;
 
     function calculateAverageLiquidation() {
       if (liquidationValues.length === 0) return 0;
@@ -418,22 +419,45 @@
       ));
 
       const clonedItems = newItems.map(item => item.cloneNode(true));
+      const clonedItemsAgain = newItems.map(item => item.cloneNode(true));
 
-      const allItems = [...newItems, ...clonedItems];
+      const allItems = [...newItems, ...clonedItems, ...clonedItemsAgain];
+
+      const previousWidth = tickerContent.getBoundingClientRect().width;
+      const previousTransform = getComputedStyle(tickerContent).transform;
+      const previousTranslateX = getTranslateX(previousTransform);
+      const elapsed = getTickerElapsedMs();
 
       tickerContent.innerHTML = '';
       allItems.forEach(item => tickerContent.appendChild(item));
 
-      // Reiniciar animación suavemente
       tickerContent.style.animation = 'none';
+      tickerContent.style.animationDelay = '0s';
+      tickerContent.style.transition = 'none';
+
+      const newWidth = tickerContent.getBoundingClientRect().width;
+      const progress = previousWidth > 0
+        ? Math.min(Math.max(Math.abs(previousTranslateX) / previousWidth, 0), 1)
+        : 0;
+      const targetTranslateX = -newWidth * progress;
+
+      tickerContent.style.transform = `translateX(${previousTranslateX}px)`;
       tickerContent.offsetHeight;
 
-      const durationMs = getTickerDurationMs();
-      const safeDurationMs = durationMs > 0 ? durationMs : TICKER_ANIMATION_DURATION;
-      const elapsed = performance.now() % safeDurationMs;
-      const remaining = safeDurationMs - elapsed;
-
-      tickerContent.style.animation = `scroll-left ${remaining / 1000}s linear infinite`;
+      if (previousWidth > 0) {
+        tickerContent.style.transition = 'transform 0.35s ease';
+        requestAnimationFrame(() => {
+          tickerContent.style.transform = `translateX(${targetTranslateX}px)`;
+        });
+        tickerContent.addEventListener('transitionend', () => {
+          tickerContent.style.transition = '';
+          tickerContent.style.transform = '';
+          setTickerAnimation(elapsed);
+        }, { once: true });
+      } else {
+        tickerContent.style.transform = '';
+        setTickerAnimation(elapsed);
+      }
 
       tickerTop3Snapshot = pendingTickerSnapshot
         .filter(item => item.type === 'top3')
@@ -446,6 +470,29 @@
       if (getComputedStyle(tickerContent).animationPlayState === 'paused') return;
       if (tickerUpdatePending) updateTickerDOM();
     });
+
+    function getTranslateX(transformValue) {
+      if (!transformValue || transformValue === 'none') return 0;
+      const match = transformValue.match(/matrix\(([^)]+)\)/);
+      if (!match) return 0;
+      const parts = match[1].split(',').map(value => parseFloat(value.trim()));
+      return Number.isFinite(parts[4]) ? parts[4] : 0;
+    }
+
+    function getTickerElapsedMs() {
+      if (!tickerAnimationStart) return 0;
+      return performance.now() - tickerAnimationStart;
+    }
+
+    function setTickerAnimation(elapsedMs = 0) {
+      const durationMs = getTickerDurationMs();
+      const safeDurationMs = durationMs > 0 ? durationMs : TICKER_ANIMATION_DURATION;
+      const normalizedElapsed = ((elapsedMs % safeDurationMs) + safeDurationMs) % safeDurationMs;
+      tickerAnimationStart = performance.now() - normalizedElapsed;
+
+      tickerContent.style.animation = `scroll-left ${safeDurationMs / 1000}s linear infinite`;
+      tickerContent.style.animationDelay = `-${normalizedElapsed / 1000}s`;
+    }
 
     function buildTickerSnapshot(tickerData, top3Snapshot = []) {
       const { ticker24Hr, spot, futures, index } = tickerData;
