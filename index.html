@@ -50,10 +50,29 @@
       background-color: #222;
       color: #fff;
       padding: 10px;
-      overflow: hidden;
+      overflow-y: auto;
       position: relative;
       border-radius: 10px;
       box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+    }
+
+    .liquidation-header {
+      font-size: 0.9em;
+      padding: 10px 0 5px 0;
+      border-bottom: 2px solid #FFD700;
+      display: flex;
+      justify-content: space-between;
+      font-weight: bold;
+      color: #FFD700;
+      position: sticky;
+      top: 0;
+      background-color: #222;
+      z-index: 1;
+    }
+
+    .liquidation-header span {
+      display: inline-block;
+      padding: 0 10px;
     }
 
     .liquidation-content {
@@ -142,6 +161,11 @@
   </div>
 
   <div class="liquidation-box">
+    <div class="liquidation-header">
+      <span style="width: 33%;">Símbolo</span>
+      <span style="width: 33%; text-align: center;">Precio</span>
+      <span style="width: 33%; text-align: right;">Cantidad</span>
+    </div>
     <div class="liquidation-content" id="liquidation-content">
       <!-- Las liquidaciones se llenarán aquí con JavaScript -->
     </div>
@@ -329,25 +353,34 @@
             liquidations.shift();
           }
 
-          liquidationFrequency[newLiquidation.symbol] = liquidationFrequency[newLiquidation.symbol] || { count: 0, total: 0 };
-          liquidationFrequency[newLiquidation.symbol].count++;
-          liquidationFrequency[newLiquidation.symbol].total += parseFloat(newLiquidation.price);
+          liquidationFrequency = {};
+          liquidations.forEach(liq => {
+            liquidationFrequency[liq.symbol] = liquidationFrequency[liq.symbol] || { count: 0, total: 0 };
+            liquidationFrequency[liq.symbol].count++;
+            liquidationFrequency[liq.symbol].total += parseFloat(liq.price);
+          });
 
-          const liquidationValue = parseFloat(newLiquidation.price) * parseFloat(newLiquidation.quantity);
+          longTotal = 0;
+          shortTotal = 0;
+          largestLiquidation = { amount: 0, symbol: '', side: '' };
 
-          if (newLiquidation.side === 'SELL') {
-            longTotal += liquidationValue;
-          } else {
-            shortTotal += liquidationValue;
-          }
+          liquidations.forEach(liq => {
+            const liqValue = parseFloat(liq.price) * parseFloat(liq.quantity);
 
-          if (liquidationValue > largestLiquidation.amount) {
-            largestLiquidation = {
-              amount: liquidationValue,
-              symbol: newLiquidation.symbol,
-              side: newLiquidation.side
-            };
-          }
+            if (liq.side === 'SELL') {
+              longTotal += liqValue;
+            } else {
+              shortTotal += liqValue;
+            }
+
+            if (liqValue > largestLiquidation.amount) {
+              largestLiquidation = {
+                amount: liqValue,
+                symbol: liq.symbol,
+                side: liq.side
+              };
+            }
+          });
 
           updateStatsPanel();
 
@@ -360,13 +393,18 @@
             item.className = 'liquidation-item';
 
             const symbolSpan = document.createElement('span');
-            symbolSpan.textContent = `Símbolo: ${liquidation.symbol}`;
+            symbolSpan.textContent = liquidation.symbol;
+            symbolSpan.style.width = '33%';
 
             const priceSpan = document.createElement('span');
-            priceSpan.textContent = `Precio: ${liquidation.price}`;
+            priceSpan.textContent = `$${parseFloat(liquidation.price).toFixed(2)}`;
+            priceSpan.style.width = '33%';
+            priceSpan.style.textAlign = 'center';
 
             const quantitySpan = document.createElement('span');
-            quantitySpan.textContent = `Cantidad: ${liquidation.quantity}`;
+            quantitySpan.textContent = parseFloat(liquidation.quantity).toFixed(4);
+            quantitySpan.style.width = '33%';
+            quantitySpan.style.textAlign = 'right';
 
             const liquidationColor = liquidation.side === 'SELL' ? '#FF5252' : '#4CAF50';
             item.style.color = liquidationColor;
