@@ -323,6 +323,7 @@
     let liquidationValues = [];
     let latestTop3Snapshot = [];
     let tickerTop3Snapshot = [];
+    let ticker24HrData = [];
     const tickerState = {
       items: [],
       pendingQueue: [],
@@ -391,6 +392,7 @@
         const spotData = await spotResponse.json();
         const futuresData = await futuresResponse.json();
         const indexData = await indexResponse.json();
+        ticker24HrData = tickerData;
 
         const snapshot = buildTickerSnapshot(
           {
@@ -417,6 +419,12 @@
 
     function enqueueTickerSnapshot(snapshot) {
       snapshot.forEach(item => tickerState.pendingQueue.push(item));
+      if (tickerState.pendingQueue.length < 3) {
+        snapshot.forEach(item => tickerState.pendingQueue.push({ ...item }));
+        snapshot.forEach(item => tickerState.pendingQueue.push({ ...item }));
+      } else if (tickerState.pendingQueue.length < 5) {
+        snapshot.forEach(item => tickerState.pendingQueue.push({ ...item }));
+      }
       tickerTop3Snapshot = snapshot
         .filter(item => item.type === 'top3')
         .map(item => item.symbol);
@@ -525,6 +533,23 @@
         color: "var(--color-accent)"
       });
 
+      if (largestLiquidation.amount > 0) {
+        const symbol = largestLiquidation.symbol;
+        const pairData = ticker24Hr.find(data => data.symbol === symbol);
+        const price = pairData ? parseFloat(pairData.lastPrice).toFixed(2) : 'N/A';
+        const change = pairData ? parseFloat(pairData.priceChangePercent).toFixed(2) : 0;
+        const changeColor = change >= 0 ? 'var(--color-long)' : 'var(--color-short)';
+        const changeStr = change >= 0 ? `+${change}%` : `${change}%`;
+
+        snapshotItems.push({
+          type: 'huge_liq',
+          label: `${symbol} (Mayor Liq: $${(largestLiquidation.amount / 1000).toFixed(1)}k)`,
+          price: `$${price}`,
+          change: changeStr,
+          color: changeColor
+        });
+      }
+
       if(topLiquidated.length === 0) {
          snapshotItems.push({
           label: "Recolectando datos...",
@@ -555,6 +580,47 @@
       });
 
       return snapshotItems;
+    }
+
+    function buildTop3Snapshot(topLiquidated, ticker24Hr) {
+      const topItems = [];
+
+      topItems.push({
+        label: "🔥 TOP LIQ",
+        price: undefined,
+        change: undefined,
+        color: "var(--color-accent)"
+      });
+
+      if (topLiquidated.length === 0) {
+        topItems.push({
+          label: "Recolectando datos...",
+          price: "",
+          change: undefined,
+          color: undefined
+        });
+        return topItems;
+      }
+
+      topLiquidated.forEach(([symbol]) => {
+        const pairData = ticker24Hr.find(p => p.symbol === symbol);
+        if (pairData) {
+          const price = parseFloat(pairData.lastPrice).toFixed(2);
+          const change = parseFloat(pairData.priceChangePercent).toFixed(2);
+          const changeColor = change >= 0 ? 'var(--color-long)' : 'var(--color-short)';
+          const changeStr = change >= 0 ? `+${change}%` : `${change}%`;
+          topItems.push({
+            type: 'top3',
+            symbol,
+            label: symbol,
+            price: `$${price}`,
+            change: changeStr,
+            color: changeColor
+          });
+        }
+      });
+
+      return topItems;
     }
 
     function createTickerItem(label, price, change, color) {
@@ -720,6 +786,10 @@
         .slice(0, 3);
 
       latestTop3Snapshot = topLiquidated.map(([symbol]) => symbol);
+      if (hasTop3Changed()) {
+        fetchTickerData();
+        enqueueTickerSnapshot(buildTop3Snapshot(topLiquidated, ticker24HrData));
+      }
 
       const topContent = document.getElementById('top-liquidated-content');
       topContent.innerHTML = '';
