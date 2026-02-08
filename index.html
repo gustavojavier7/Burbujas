@@ -49,18 +49,25 @@
 
     .ticker-content {
       display: inline-flex;
+      animation: scroll-left 90s linear infinite;
       will-change: transform;
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.95em;
     }
 
-    .ticker-item {
-      display: inline-block;
-      padding: 0 25px;
-      border-right: 1px solid var(--border-color);
+    @keyframes scroll-left {
+      from {
+        transform: translateX(0);
+      }
+      to {
+        transform: translateX(-50%);
+      }
     }
-    .ticker-item:last-child { border-right: none; }
-    .ticker-item span { margin-right: 8px; }
+
+    /* Pausar al pasar el mouse */
+    .ticker-container:hover .ticker-content {
+      animation-play-state: paused;
+    }
 
     /* --- LAYOUT PRINCIPAL --- */
     .dashboard-grid {
@@ -306,11 +313,9 @@
     const INDEX_PRICE_URL = "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT";
     const MAX_LIQUIDATIONS = 50;
     const MAX_LIQUIDATIONS_MEMORY = 100;
+    const TICKER_ANIMATION_DURATION = 90000; // 90 segundos en ms (debe coincidir con CSS)
 
     let tickerContent = document.getElementById("ticker");
-    let tickerPosition = 0;
-    const tickerSpeed = 0.5;
-    let tickerInitialized = false;
     let liquidations = [];
     let liquidationFrequency = {};
     let longTotal = 0;
@@ -318,6 +323,10 @@
     let largestLiquidation = { amount: 0, symbol: '', side: '' };
     let liquidationValues = [];
     let lastTop3 = [];
+
+    // Variables para Double Buffering del Ticker
+    let tickerUpdatePending = false;
+    let pendingTickerData = null;
 
     function calculateAverageLiquidation() {
       if (liquidationValues.length === 0) return 0;
@@ -346,81 +355,81 @@
       return false;
     }
 
-  function startTicker() {
-  function scrollTicker() {
-    tickerPosition -= tickerSpeed;
+    // ========================================
+    // TICKER: DOUBLE BUFFERING
+    // ========================================
     
-    // Calcular el ancho de UN solo set (la mitad del contenido total)
-    const singleSetWidth = tickerContent.scrollWidth / 2;
-    
-    // Cuando hemos scrolleado exactamente un set completo, 
-    // resetear SUMANDO en lugar de establecer a 0
-    if (Math.abs(tickerPosition) >= singleSetWidth) {
-      tickerPosition = tickerPosition + singleSetWidth;
-    }
-    
-    tickerContent.style.transform = `translateX(${tickerPosition}px)`;
-    requestAnimationFrame(scrollTicker);
-  }
-  scrollTicker();
-}
+    async function fetchTickerData() {
+      try {
+        const [tickerResponse, spotResponse, futuresResponse, indexResponse] = await Promise.all([
+          fetch(TICKER_24HR_URL),
+          fetch(SPOT_TICKER_URL),
+          fetch(FUTURES_TICKER_URL),
+          fetch(INDEX_PRICE_URL)
+        ]);
 
-    async function updateTicker() {
-  try {
-    const [tickerResponse, spotResponse, futuresResponse, indexResponse] = await Promise.all([
-      fetch(TICKER_24HR_URL),
-      fetch(SPOT_TICKER_URL),
-      fetch(FUTURES_TICKER_URL),
-      fetch(INDEX_PRICE_URL)
-    ]);
+        const tickerData = await tickerResponse.json();
+        const spotData = await spotResponse.json();
+        const futuresData = await futuresResponse.json();
+        const indexData = await indexResponse.json();
 
-    const tickerData = await tickerResponse.json();
-    const spotData = await spotResponse.json();
-    const futuresData = await futuresResponse.json();
-    const indexData = await indexResponse.json();
+        // Guardar datos para actualizar después (cuando termine el ciclo de animación)
+        pendingTickerData = {
+          ticker24Hr: tickerData,
+          spot: spotData,
+          futures: futuresData,
+          index: indexData
+        };
+        
+        tickerUpdatePending = true;
 
-    const newItems = [];
-
-    const prices = [
-      { label: 'SPOT BTC', price: parseFloat(spotData.price).toFixed(2) },
-      { label: 'FUTURES BTC', price: parseFloat(futuresData.price).toFixed(2) },
-      { label: 'INDEX PRICE', price: parseFloat(indexData.markPrice).toFixed(2) }
-    ];
-
-    prices.forEach(item => {
-      const tickerItem = createTickerItem(item.label, `$${item.price}`, undefined, 'var(--text-main)');
-      newItems.push(tickerItem);
-    });
-
-    await addTop3ToTicker(newItems, tickerData);
-
-    // CAMBIO CLAVE: Duplicar clonando profundamente
-    const clonedItems = newItems.map(item => item.cloneNode(true));
-    const allItems = [...newItems, ...clonedItems];
-
-    // Guardar posición actual antes de actualizar
-    const wasScrolling = tickerInitialized;
-    const currentPosition = tickerPosition;
-
-    tickerContent.innerHTML = '';
-    allItems.forEach(item => tickerContent.appendChild(item));
-
-    // Restaurar posición si ya estaba inicializado
-    if (wasScrolling) {
-      // No resetear la posición, mantener el scroll continuo
-      const singleSetWidth = tickerContent.scrollWidth / 2;
-      // Si la posición excede el ancho de un set, ajustar
-      if (Math.abs(currentPosition) >= singleSetWidth) {
-        tickerPosition = 0;
+      } catch (error) {
+        console.error("Error al obtener los datos del ticker:", error);
       }
-    } else {
-      tickerInitialized = true;
     }
 
-  } catch (error) {
-    console.error("Error al obtener los datos del ticker:", error);
-  }
-}
+    async function updateTickerDOM() {
+      if (!tickerUpdatePending || !pendingTickerData) return;
+
+      const { ticker24Hr, spot, futures, index } = pendingTickerData;
+      
+      const newItems = [];
+
+      const prices = [
+        { label: 'SPOT BTC', price: parseFloat(spot.price).toFixed(2) },
+        { label: 'FUTURES BTC', price: parseFloat(futures.price).toFixed(2) },
+        { label: 'INDEX PRICE', price: parseFloat(index.markPrice).toFixed(2) }
+      ];
+
+      prices.forEach(item => {
+        const tickerItem = createTickerItem(item.label, `$${item.price}`, undefined, 'var(--text-main)');
+        newItems.push(tickerItem);
+      });
+
+      await addTop3ToTicker(newItems, ticker24Hr);
+
+      const clonedItems = newItems.map(item => item.cloneNode(true));
+      const allItems = [...newItems, ...clonedItems];
+
+      // Actualizar DOM (la animación CSS se reinicia automáticamente)
+      tickerContent.innerHTML = '';
+      allItems.forEach(item => tickerContent.appendChild(item));
+
+      // Reiniciar animación para evitar saltos
+      tickerContent.style.animation = 'none';
+      requestAnimationFrame(() => {
+        tickerContent.style.animation = 'scroll-left 90s linear infinite';
+      });
+
+      tickerUpdatePending = false;
+      pendingTickerData = null;
+    }
+
+    // Escuchar cuando la animación completa un ciclo
+    tickerContent.addEventListener('animationiteration', () => {
+      // La animación completó un ciclo, es seguro actualizar sin saltos visibles
+      updateTickerDOM();
+    });
 
     async function addTop3ToTicker(newItems, ticker24HrData) {
       const topLiquidated = Object.keys(liquidationFrequency)
@@ -476,6 +485,10 @@
 
       return tickerItem;
     }
+
+    // ========================================
+    // LIQUIDACIONES WEBSOCKET
+    // ========================================
 
     function connectLiquidationWebSocket() {
       const liquidationContent = document.getElementById('liquidation-content');
@@ -549,8 +562,9 @@
           updateStatsPanel();
           showTopLiquidatedCoins();
 
+          // Si el TOP 3 cambió, hacer fetch de nuevos datos (se aplicarán en el próximo ciclo)
           if (hasTop3Changed()) {
-            updateTicker();
+            fetchTickerData();
           }
 
           if (isHugeLiquidation(liqValue)) {
@@ -710,9 +724,18 @@
       }
     }
 
+    // ========================================
+    // INICIALIZACIÓN
+    // ========================================
+
     document.addEventListener('DOMContentLoaded', () => {
-      updateTicker().then(() => startTicker());
-      setInterval(updateTicker, 60000);
+      // Cargar ticker inicial inmediatamente
+      fetchTickerData().then(() => updateTickerDOM());
+      
+      // Fetch de datos cada 60 segundos (se aplicarán cuando termine el ciclo de animación)
+      setInterval(fetchTickerData, 60000);
+      
+      // Conectar WebSocket de liquidaciones
       connectLiquidationWebSocket();
     });
   </script>
