@@ -84,6 +84,54 @@
     #top-liquidated div {
       font-size: 1em;
     }
+
+    .stats-panel {
+      width: 90%;
+      max-width: 800px;
+      background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+      color: #fff;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 10px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      font-family: 'Courier New', monospace;
+    }
+
+    .stats-panel h3 {
+      margin: 0 0 15px 0;
+      text-align: center;
+      font-size: 1.3em;
+      border-bottom: 2px solid #FFD700;
+      padding-bottom: 10px;
+    }
+
+    .stats-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .stats-label {
+      font-weight: bold;
+    }
+
+    .stats-value {
+      text-align: right;
+    }
+
+    .long-color {
+      color: #4CAF50;
+    }
+
+    .short-color {
+      color: #FF5252;
+    }
+
+    .highlight {
+      color: #FFD700;
+      font-size: 1.1em;
+    }
   </style>
 </head>
 <body>
@@ -96,6 +144,34 @@
   <div class="liquidation-box">
     <div class="liquidation-content" id="liquidation-content">
       <!-- Las liquidaciones se llenarán aquí con JavaScript -->
+    </div>
+  </div>
+
+  <div class="stats-panel" id="stats-panel">
+    <h3>📊 ESTADÍSTICAS DE LIQUIDACIONES</h3>
+    <div class="stats-row">
+      <span class="stats-label long-color">LONG Liquidated:</span>
+      <span class="stats-value long-color" id="long-liquidated">$0 (0%)</span>
+    </div>
+    <div class="stats-row">
+      <span class="stats-label short-color">SHORT Liquidated:</span>
+      <span class="stats-value short-color" id="short-liquidated">$0 (0%)</span>
+    </div>
+    <div class="stats-row">
+      <span class="stats-label">Ratio L/S:</span>
+      <span class="stats-value highlight" id="ratio-ls">0.00</span>
+    </div>
+    <div class="stats-row">
+      <span class="stats-label">Avg Liquidation:</span>
+      <span class="stats-value" id="avg-liquidation">$0</span>
+    </div>
+    <div class="stats-row">
+      <span class="stats-label">Largest:</span>
+      <span class="stats-value highlight" id="largest-liquidation">-</span>
+    </div>
+    <div class="stats-row">
+      <span class="stats-label">Total Liquidations:</span>
+      <span class="stats-value" id="total-count">0</span>
     </div>
   </div>
 
@@ -115,6 +191,9 @@
     let tickerInitialized = false;
     let liquidations = [];
     let liquidationFrequency = {};
+    let longTotal = 0;
+    let shortTotal = 0;
+    let largestLiquidation = { amount: 0, symbol: '', side: '' };
 
     function startTicker() {
       function scrollTicker() {
@@ -254,6 +333,24 @@
           liquidationFrequency[newLiquidation.symbol].count++;
           liquidationFrequency[newLiquidation.symbol].total += parseFloat(newLiquidation.price);
 
+          const liquidationValue = parseFloat(newLiquidation.price) * parseFloat(newLiquidation.quantity);
+
+          if (newLiquidation.side === 'SELL') {
+            longTotal += liquidationValue;
+          } else {
+            shortTotal += liquidationValue;
+          }
+
+          if (liquidationValue > largestLiquidation.amount) {
+            largestLiquidation = {
+              amount: liquidationValue,
+              symbol: newLiquidation.symbol,
+              side: newLiquidation.side
+            };
+          }
+
+          updateStatsPanel();
+
           showTopLiquidatedCoins();
 
           liquidationContent.innerHTML = '';
@@ -349,6 +446,34 @@
       setInterval(updateTicker, 60000);
       connectLiquidationWebSocket();
     });
+
+    function updateStatsPanel() {
+      const total = longTotal + shortTotal;
+      const longPercent = total > 0 ? ((longTotal / total) * 100).toFixed(1) : 0;
+      const shortPercent = total > 0 ? ((shortTotal / total) * 100).toFixed(1) : 0;
+      const ratio = shortTotal > 0 ? (longTotal / shortTotal).toFixed(2) : 0;
+      const avgLiquidation = liquidations.length > 0
+        ? ((longTotal + shortTotal) / liquidations.length).toFixed(0)
+        : 0;
+
+      document.getElementById('long-liquidated').textContent =
+        `$${(longTotal / 1000).toFixed(1)}k (${longPercent}%)`;
+
+      document.getElementById('short-liquidated').textContent =
+        `$${(shortTotal / 1000).toFixed(1)}k (${shortPercent}%)`;
+
+      document.getElementById('ratio-ls').textContent = ratio;
+
+      document.getElementById('avg-liquidation').textContent =
+        `$${Number(avgLiquidation).toLocaleString()}`;
+
+      document.getElementById('largest-liquidation').textContent =
+        largestLiquidation.amount > 0
+          ? `$${(largestLiquidation.amount / 1000).toFixed(1)}k ${largestLiquidation.symbol} ${largestLiquidation.side}`
+          : '-';
+
+      document.getElementById('total-count').textContent = liquidations.length;
+    }
   </script>
 </body>
 </html>
