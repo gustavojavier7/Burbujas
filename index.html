@@ -17,6 +17,7 @@
       --color-long: #10b981;
       --color-short: #ef4444;
       --color-accent: #eab308;
+      --ticker-duration: 40s;
     }
 
     * {
@@ -49,7 +50,7 @@
 
     .ticker-content {
       display: inline-flex;
-      animation: scroll-left 40s linear infinite;
+      animation: scroll-left var(--ticker-duration) linear infinite;
       will-change: transform;
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.95em;
@@ -71,13 +72,6 @@
     }
     .ticker-item:last-child { border-right: none; }
     .ticker-item span { margin-right: 8px; }
-
-    /* Separador invisible entre los dos buffers */
-    .ticker-separator {
-      display: inline-block;
-      width: 100vw;
-      flex-shrink: 0;
-    }
 
     /* Pausar al pasar el mouse */
     .ticker-container:hover .ticker-content {
@@ -324,7 +318,7 @@
     const INDEX_PRICE_URL = "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT";
     const MAX_LIQUIDATIONS = 50;
     const MAX_LIQUIDATIONS_MEMORY = 100;
-    const TICKER_ANIMATION_DURATION = 40000; // 40 segundos
+    const TICKER_ANIMATION_DURATION = 40000; // 40 segundos (fallback)
 
     let tickerContent = document.getElementById("ticker");
     let liquidations = [];
@@ -333,7 +327,8 @@
     let shortTotal = 0;
     let largestLiquidation = { amount: 0, symbol: '', side: '' };
     let liquidationValues = [];
-    let lastTop3 = [];
+    let latestTop3Snapshot = [];
+    let tickerTop3Snapshot = [];
     let tickerUpdatePending = false;
     let pendingTickerData = null;
 
@@ -352,16 +347,36 @@
     }
 
     function hasTop3Changed() {
-      const currentTop3 = Object.keys(liquidationFrequency)
-        .sort((a, b) => liquidationFrequency[b].count - liquidationFrequency[a].count)
-        .slice(0, 3)
-        .join(',');
-      
-      if (currentTop3 !== lastTop3.join(',')) {
-        lastTop3 = currentTop3.split(',');
+      const currentTop3 = latestTop3Snapshot.join(',');
+      const previousTop3 = tickerTop3Snapshot.join(',');
+
+      if (currentTop3 !== previousTop3) {
         return true;
       }
       return false;
+    }
+
+    function getTickerDurationMs() {
+      const durationValue = getComputedStyle(document.documentElement)
+        .getPropertyValue('--ticker-duration')
+        .trim();
+
+      if (!durationValue) {
+        return TICKER_ANIMATION_DURATION;
+      }
+
+      if (durationValue.endsWith('ms')) {
+        const value = parseFloat(durationValue);
+        return Number.isFinite(value) ? value : TICKER_ANIMATION_DURATION;
+      }
+
+      if (durationValue.endsWith('s')) {
+        const value = parseFloat(durationValue);
+        return Number.isFinite(value) ? value * 1000 : TICKER_ANIMATION_DURATION;
+      }
+
+      const value = parseFloat(durationValue);
+      return Number.isFinite(value) ? value * 1000 : TICKER_ANIMATION_DURATION;
     }
 
     async function fetchTickerData() {
@@ -410,38 +425,42 @@
         newItems.push(tickerItem);
       });
 
-      await addTop3ToTicker(newItems, ticker24Hr);
-
-      // Crear separador de pantalla completa entre buffers
-      const separator = document.createElement('div');
-      separator.className = 'ticker-separator';
+      await addTop3ToTicker(newItems, ticker24Hr, latestTop3Snapshot);
 
       const clonedItems = newItems.map(item => item.cloneNode(true));
-      
-      // Estructura: [datos] + [separador 100vw] + [datos clonados]
-      const allItems = [...newItems, separator, ...clonedItems];
+
+      const allItems = [...newItems, ...clonedItems];
 
       tickerContent.innerHTML = '';
       allItems.forEach(item => tickerContent.appendChild(item));
 
       // Reiniciar animación suavemente
       tickerContent.style.animation = 'none';
-      requestAnimationFrame(() => {
-        tickerContent.style.animation = 'scroll-left 40s linear infinite';
-      });
+      tickerContent.offsetHeight;
 
+      const durationMs = getTickerDurationMs();
+      const safeDurationMs = durationMs > 0 ? durationMs : TICKER_ANIMATION_DURATION;
+      const elapsed = performance.now() % safeDurationMs;
+      const remaining = safeDurationMs - elapsed;
+
+      tickerContent.style.animation = `scroll-left ${remaining / 1000}s linear infinite`;
+
+      tickerTop3Snapshot = latestTop3Snapshot.slice();
       tickerUpdatePending = false;
       pendingTickerData = null;
     }
 
     tickerContent.addEventListener('animationiteration', () => {
-      updateTickerDOM();
+      if (getComputedStyle(tickerContent).animationPlayState === 'paused') return;
+      if (tickerUpdatePending) updateTickerDOM();
     });
 
-    async function addTop3ToTicker(newItems, ticker24HrData) {
-      const topLiquidated = Object.keys(liquidationFrequency)
-        .sort((a, b) => liquidationFrequency[b].count - liquidationFrequency[a].count)
-        .slice(0, 3);
+    async function addTop3ToTicker(newItems, ticker24HrData, top3Snapshot = []) {
+      const topLiquidated = top3Snapshot.length > 0
+        ? top3Snapshot
+        : Object.keys(liquidationFrequency)
+          .sort((a, b) => liquidationFrequency[b].count - liquidationFrequency[a].count)
+          .slice(0, 3);
 
       const headerItem = createTickerItem("🔥 TOP LIQ", undefined, undefined, "var(--color-accent)");
       newItems.push(headerItem);
@@ -626,6 +645,8 @@
       const topLiquidated = Object.entries(liquidationFrequency)
         .sort((a, b) => b[1].count - a[1].count)
         .slice(0, 3);
+
+      latestTop3Snapshot = topLiquidated.map(([symbol]) => symbol);
 
       const topContent = document.getElementById('top-liquidated-content');
       topContent.innerHTML = '';
