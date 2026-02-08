@@ -330,7 +330,7 @@
     let latestTop3Snapshot = [];
     let tickerTop3Snapshot = [];
     let tickerUpdatePending = false;
-    let pendingTickerData = null;
+    let pendingTickerSnapshot = null;
 
     function calculateAverageLiquidation() {
       if (liquidationValues.length === 0) return 0;
@@ -393,12 +393,15 @@
         const futuresData = await futuresResponse.json();
         const indexData = await indexResponse.json();
 
-        pendingTickerData = {
-          ticker24Hr: tickerData,
-          spot: spotData,
-          futures: futuresData,
-          index: indexData
-        };
+        pendingTickerSnapshot = buildTickerSnapshot(
+          {
+            ticker24Hr: tickerData,
+            spot: spotData,
+            futures: futuresData,
+            index: indexData
+          },
+          latestTop3Snapshot
+        );
         
         tickerUpdatePending = true;
 
@@ -408,24 +411,11 @@
     }
 
     async function updateTickerDOM() {
-      if (!tickerUpdatePending || !pendingTickerData) return;
+      if (!tickerUpdatePending || !pendingTickerSnapshot) return;
 
-      const { ticker24Hr, spot, futures, index } = pendingTickerData;
-      
-      const newItems = [];
-
-      const prices = [
-        { label: 'SPOT BTC', price: parseFloat(spot.price).toFixed(2) },
-        { label: 'FUTURES BTC', price: parseFloat(futures.price).toFixed(2) },
-        { label: 'INDEX PRICE', price: parseFloat(index.markPrice).toFixed(2) }
-      ];
-
-      prices.forEach(item => {
-        const tickerItem = createTickerItem(item.label, `$${item.price}`, undefined, 'var(--text-main)');
-        newItems.push(tickerItem);
-      });
-
-      await addTop3ToTicker(newItems, ticker24Hr, latestTop3Snapshot);
+      const newItems = pendingTickerSnapshot.map(data => (
+        createTickerItem(data.label, data.price, data.change, data.color)
+      ));
 
       const clonedItems = newItems.map(item => item.cloneNode(true));
 
@@ -445,9 +435,11 @@
 
       tickerContent.style.animation = `scroll-left ${remaining / 1000}s linear infinite`;
 
-      tickerTop3Snapshot = latestTop3Snapshot.slice();
+      tickerTop3Snapshot = pendingTickerSnapshot
+        .filter(item => item.type === 'top3')
+        .map(item => item.symbol);
       tickerUpdatePending = false;
-      pendingTickerData = null;
+      pendingTickerSnapshot = null;
     }
 
     tickerContent.addEventListener('animationiteration', () => {
@@ -455,33 +447,68 @@
       if (tickerUpdatePending) updateTickerDOM();
     });
 
-    async function addTop3ToTicker(newItems, ticker24HrData, top3Snapshot = []) {
+    function buildTickerSnapshot(tickerData, top3Snapshot = []) {
+      const { ticker24Hr, spot, futures, index } = tickerData;
+      const snapshotItems = [];
+
+      const prices = [
+        { label: 'SPOT BTC', price: parseFloat(spot.price).toFixed(2) },
+        { label: 'FUTURES BTC', price: parseFloat(futures.price).toFixed(2) },
+        { label: 'INDEX PRICE', price: parseFloat(index.markPrice).toFixed(2) }
+      ];
+
+      prices.forEach(item => {
+        snapshotItems.push({
+          label: item.label,
+          price: `$${item.price}`,
+          change: undefined,
+          color: 'var(--text-main)'
+        });
+      });
+
       const topLiquidated = top3Snapshot.length > 0
         ? top3Snapshot
         : Object.keys(liquidationFrequency)
           .sort((a, b) => liquidationFrequency[b].count - liquidationFrequency[a].count)
           .slice(0, 3);
 
-      const headerItem = createTickerItem("🔥 TOP LIQ", undefined, undefined, "var(--color-accent)");
-      newItems.push(headerItem);
+      snapshotItems.push({
+        label: "🔥 TOP LIQ",
+        price: undefined,
+        change: undefined,
+        color: "var(--color-accent)"
+      });
 
       if(topLiquidated.length === 0) {
-         newItems.push(createTickerItem("Recolectando datos...", ""));
-         return;
+         snapshotItems.push({
+          label: "Recolectando datos...",
+          price: "",
+          change: undefined,
+          color: undefined
+         });
+         return snapshotItems;
       }
 
       topLiquidated.forEach(symbol => {
-        const pairData = ticker24HrData.find(data => data.symbol === symbol);
+        const pairData = ticker24Hr.find(data => data.symbol === symbol);
         if (pairData) {
           const price = parseFloat(pairData.lastPrice).toFixed(2);
           const change = parseFloat(pairData.priceChangePercent).toFixed(2);
           const changeColor = change >= 0 ? 'var(--color-long)' : 'var(--color-short)';
           const changeStr = change >= 0 ? `+${change}%` : `${change}%`;
 
-          const tickerItem = createTickerItem(symbol, `$${price}`, changeStr, changeColor);
-          newItems.push(tickerItem);
+          snapshotItems.push({
+            type: 'top3',
+            symbol,
+            label: symbol,
+            price: `$${price}`,
+            change: changeStr,
+            color: changeColor
+          });
         }
       });
+
+      return snapshotItems;
     }
 
     function createTickerItem(label, price, change, color) {
