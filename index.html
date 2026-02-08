@@ -3,754 +3,352 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CryptoBubbles: Monitor de Liquidaciones</title>
-  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <title>Monitor de Cotizaciones y Liquidaciones Forzosas</title>
   <style>
     body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background-color: #1a1a1a;
-      color: #fff;
+      font-family: Arial, sans-serif;
+      background-color: #f0f0f0;
       margin: 0;
       padding: 0;
-      overflow: hidden; /* Evitar scrollbars */
       display: flex;
       flex-direction: column;
-      height: 100vh;
+      align-items: center;
     }
 
-    /* HEADER / TICKER */
-    .header-info {
-      background-color: #252525;
-      padding: 10px 20px;
+    .ticker-container {
+      overflow: hidden;
+      width: 100%;
+      white-space: nowrap;
+      background-color: #fff;
+      color: #000;
+      padding: 10px 0;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      margin-bottom: 20px;
+    }
+
+    .ticker-content {
+      display: inline-flex;
+      flex-wrap: nowrap;
+      white-space: nowrap;
+      will-change: transform;
+    }
+
+    .ticker-item {
+      display: inline-block;
+      padding: 0 20px;
+      font-size: 1.2em;
+    }
+
+    .ticker-item span {
+      margin-right: 10px;
+    }
+
+    .liquidation-box {
+      width: 90%;
+      max-width: 800px;
+      height: 300px;
+      background-color: #222;
+      color: #fff;
+      padding: 10px;
+      overflow: hidden;
+      position: relative;
+      border-radius: 10px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+    }
+
+    .liquidation-content {
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .liquidation-item {
+      font-size: 1em;
+      padding: 5px 0;
+      border-bottom: 1px solid #444;
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      border-bottom: 1px solid #333;
-      z-index: 10;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.5);
     }
 
-    .status-dot {
-      height: 10px;
-      width: 10px;
-      background-color: #bbb;
-      border-radius: 50%;
+    .liquidation-item span {
       display: inline-block;
-      margin-right: 5px;
-    }
-    .status-connected { background-color: #4CAF50; box-shadow: 0 0 5px #4CAF50;}
-    .status-disconnected { background-color: #f44336; }
-
-    /* CONTENEDOR DE BURBUJAS */
-    #bubble-chart {
-      flex-grow: 1;
-      width: 100%;
-      height: 100%;
-      position: relative;
-      background: radial-gradient(circle at center, #2a2a2a 0%, #111 100%);
+      padding: 0 10px;
     }
 
-    /* ESTILOS SVG */
-    text {
-      font-family: sans-serif;
-      text-anchor: middle;
-      pointer-events: none;
-      text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
-    }
-    .bubble-label {
-      font-weight: bold;
-      fill: white;
-      font-size: 14px;
-    }
-    .bubble-value {
-      fill: #eee;
-      font-size: 10px;
-      margin-top: 5px;
-    }
-    circle {
-      stroke: #fff;
-      stroke-width: 1px;
-      stroke-opacity: 0.3;
-      transition: fill 0.5s ease;
-      cursor: pointer;
-    }
-    circle:hover {
-      stroke-opacity: 0.8;
-      stroke-width: 2px;
+    #top-liquidated h2 {
+      margin-top: 0;
     }
 
-    /* PANEL DE DETALLE FLOTANTE (Opcional) */
-    #details-panel {
-      position: absolute;
-      top: 70px;
-      right: 20px;
-      width: 250px;
-      background: rgba(0, 0, 0, 0.8);
-      border: 1px solid #444;
-      border-radius: 8px;
-      padding: 15px;
-      display: none;
-      pointer-events: none;
-    }
-
-    .time-ring {
-      pointer-events: none;
-      filter: drop-shadow(0 0 3px rgba(255,255,255,0.5));
-    }
-
-    circle, text {
-      transition: opacity 0.5s ease-out;
+    #top-liquidated div {
+      font-size: 1em;
     }
   </style>
 </head>
 <body>
-
-  <div class="header-info">
-    <div>
-      <span id="connection-status" class="status-dot"></span>
-      <strong>Binance Liq. Stream</strong>
-    </div>
-    <div style="font-size: 0.9em; color: #aaa;">
-      Rojo = Long REKT (Venta forzada) | Verde = Short REKT (Compra forzada)
+  <div class="ticker-container">
+    <div class="ticker-content" id="ticker">
+      <!-- El contenido del ticker se llenará con JavaScript -->
     </div>
   </div>
 
-  <div id="bubble-chart"></div>
-  
-  <div id="details-panel">
-    <h3 id="panel-symbol">SYMBOL</h3>
-    <p>Total Liq: <span id="panel-total">0</span></p>
+  <div class="liquidation-box">
+    <div class="liquidation-content" id="liquidation-content">
+      <!-- Las liquidaciones se llenarán aquí con JavaScript -->
+    </div>
   </div>
+
+  <!-- El contenedor para el Top 3 se creará dinámicamente -->
 
   <script>
-    // --- CONFIGURACIÓN ---
-    const WS_URL = 'wss://fstream.binance.com/ws/!forceOrder@arr';
-    const SCALE_FACTOR = 0.05; // Ajuste visual del tamaño basado en USD
-    
-    // --- CONFIGURACIÓN FÍSICA GRAVITACIONAL ---
-    let GRAVITY_CONSTANT = 0.00008;     // G - Constante gravitacional (ajustar para efecto visual)
-    const MIN_GRAVITY_DISTANCE = 50;     // Distancia mínima para evitar singularidades
-    const DAMPING_FACTOR = 0.92;         // Fricción para suavizar movimiento (0.9 = mucha fricción)
-    const MAX_VELOCITY = 3;              // Velocidad máxima para evitar explosiones
-    const MASSIVE_MULTIPLIER = 5;        // Multiplicador de masa para burbujas masivas
-    const ORBIT_STABILITY = 0.15;        // Factor de estabilidad orbital (más bajo = órbitas más estables)
+    const TICKER_24HR_URL = "https://api.binance.com/api/v3/ticker/24hr";
+    const SPOT_TICKER_URL = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT";
+    const FUTURES_TICKER_URL = "https://fapi.binance.com/fapi/v1/ticker/price?symbol=BTCUSDT";
+    const INDEX_PRICE_URL = "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT";
+    const MAX_LIQUIDATIONS = 30;
+    const MAX_LIQUIDATIONS_MEMORY = 100;
 
-    // --- CONFIGURACIÓN TEMPORAL ---
-    const TIME_WINDOW = 5 * 60 * 1000; // 5 minutos en milisegundos
-    const DECAY_INTERVAL = 1000; // Actualizar cada 1 segundo
-    const CASCADE_WINDOW = 10000; // 10 segundos para cascadas
-    const MASS_THRESHOLD = 100000; // Umbral para marcar burbuja como masiva
-    const CASCADE_THRESHOLD = MASS_THRESHOLD * 3;
+    let tickerContent = document.getElementById("ticker");
+    let tickerPosition = 0;
+    const tickerSpeed = 0.5;
+    let tickerInitialized = false;
+    let liquidations = [];
+    let liquidationFrequency = {};
 
-    // --- ESTADO DE DATOS ---
-    // Estructura: { 'BTCUSDT': { liquidations: [{timestamp, amount, side}], value, radius, ... } }
-    let dataMap = {}; 
-    let nodes = [];
-    let simulation;
-    let svg, g;
-    let width, height;
-    let recentLiquidations = [];
-    let lastCascadeTimestamp = 0;
-    let trailsEnabled = true;
-    let trailCanvas;
-    let trailCtx;
-
-    // --- INICIALIZACIÓN D3 ---
-    function initChart() {
-      const container = document.getElementById('bubble-chart');
-      width = container.clientWidth;
-      height = container.clientHeight;
-
-      svg = d3.select("#bubble-chart")
-        .append("svg")
-        .attr("width", width)
-        .attr("height", height);
-
-      // Grupo principal para centrar
-      g = svg.append("g")
-        .attr("transform", `translate(${width / 2},${height / 2})`);
-
-      // Configurar simulación física
-      simulation = d3.forceSimulation(nodes)
-        .force("collide", d3.forceCollide()
-          .strength(0.8)
-          .radius(d => d.radius + 4)
-          .iterations(3))
-        .alphaDecay(0.005)
-        .velocityDecay(DAMPING_FACTOR);
-      
-      simulation.on("tick", () => {
-        applyGravitationalForces();
-        limitVelocities();
-        ticked();
-      });
-      
-      // Ajustar tamaño al cambiar ventana
-      window.addEventListener('resize', () => {
-        width = container.clientWidth;
-        height = container.clientHeight;
-        svg.attr("width", width).attr("height", height);
-        g.attr("transform", `translate(${width / 2},${height / 2})`);
-        if (trailCanvas) {
-          trailCanvas.width = width;
-          trailCanvas.height = height;
+    function startTicker() {
+      function scrollTicker() {
+        tickerPosition -= tickerSpeed;
+        if (tickerPosition <= -tickerContent.scrollWidth / 2) {
+          tickerPosition = 0;
         }
-        simulation.alpha(1).restart();
-      });
-
-      // Limpieza periódica por ventana temporal
-      setInterval(cleanExpiredLiquidations, DECAY_INTERVAL);
-    }
-
-    // --- FUNCIÓN DE DIBUJADO (TICK) ---
-    function ticked() {
-      nodes.forEach(node => {
-        if (node.isMassive) return;
-        const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
-        if (speed > 0.5) {
-          drawTrail(node);
-        }
-      });
-
-      // Unir datos con elementos DOM
-      const u = g.selectAll(".node")
-        .data(nodes, d => d.id);
-
-      // EXIT: Remover burbujas viejas
-      u.exit()
-        .transition()
-        .duration(800)
-        .style("opacity", 0)
-        .attr("r", 0)
-        .remove();
-
-      // ENTER: Crear nuevas burbujas
-      const enter = u.enter().append("g")
-        .attr("class", "node");
-
-      enter.append("circle")
-        .attr("r", 0) // Empiezan en 0 y crecen
-        .attr("fill", d => d.color)
-        .style("opacity", d => d.opacity || 1)
-        .classed("massive", d => d.isMassive)
-        .transition().duration(300)
-        .attr("r", d => d.radius);
-
-      enter.append("text")
-        .attr("class", "bubble-label")
-        .attr("dy", "-0.2em")
-        .style("opacity", d => d.opacity || 1)
-        .text(d => d.id.replace("USDT", ""));
-
-      enter.append("text")
-        .attr("class", "bubble-value")
-        .attr("dy", "1em")
-        .style("opacity", d => d.opacity || 1)
-        .text(d => formatMoney(d.value));
-
-      // UPDATE: Actualizar posiciones y tamaños existentes
-      const merged = enter.merge(u);
-      
-      merged.attr("transform", d => `translate(${d.x},${d.y})`);
-      
-      merged.select("circle")
-        .attr("r", d => d.radius)
-        .attr("fill", d => d.color)
-        .style("opacity", d => d.opacity || 1)
-        .classed("massive", d => d.isMassive); // Actualizar color si cambia la tendencia
-        
-      merged.select(".bubble-value")
-        .text(d => formatMoney(d.value));
-
-      // Actualizar opacidad de textos
-      merged.selectAll("text")
-        .style("opacity", d => d.opacity || 1);
-
-      // Agregar indicador de tiempo a burbujas masivas
-      const massiveNodes = merged.filter(d => d.isMassive);
-
-      massiveNodes.each(function(d) {
-        const node = d3.select(this);
-
-        // Eliminar anillo anterior si existe
-        node.select(".time-ring").remove();
-
-        if (d.liquidations && d.liquidations.length > 0) {
-          const now = Date.now();
-          const oldestLiq = Math.min(...d.liquidations.map(l => l.timestamp));
-          const age = now - oldestLiq;
-          const ageRatio = Math.min(age / TIME_WINDOW, 1);
-
-          const arc = d3.arc()
-            .innerRadius(d.radius + 3)
-            .outerRadius(d.radius + 6)
-            .startAngle(0)
-            .endAngle((1 - ageRatio) * 2 * Math.PI);
-
-          node.insert("path", "circle")
-            .attr("class", "time-ring")
-            .attr("d", arc)
-            .attr("fill", "none")
-            .attr("stroke", "#fff")
-            .attr("stroke-width", 2)
-            .style("opacity", 0.6);
-        }
-      });
-    }
-
-    // --- LÓGICA DE WEBSOCKET ---
-    function connectWebSocket() {
-      const ws = new WebSocket(WS_URL);
-      const statusDot = document.getElementById('connection-status');
-
-      ws.onopen = () => {
-        console.log("Conectado a Binance Liquidations");
-        statusDot.className = "status-dot status-connected";
-      };
-
-      ws.onclose = () => {
-        console.log("Desconectado, reintentando...");
-        statusDot.className = "status-dot status-disconnected";
-        setTimeout(connectWebSocket, 2000);
-      };
-
-      ws.onmessage = (event) => {
-        const payload = JSON.parse(event.data);
-        const liq = payload.o; // Objeto de orden
-
-        if (liq) {
-          processLiquidation(liq);
-        }
-      };
-    }
-
-    function processLiquidation(liq) {
-      const symbol = liq.s;
-      const amountUSD = parseFloat(liq.p) * parseFloat(liq.q);
-      const side = liq.S; // BUY o SELL (Side of the LIQUIDATION ORDER)
-
-      // LÓGICA DE COLOR:
-      // Si la orden de liquidación es SELL, es porque el usuario tenía un LONG y el precio bajó. (Rojo)
-      // Si la orden de liquidación es BUY, es porque el usuario tenía un SHORT y el precio subió. (Verde)
-      const color = side === 'SELL' ? '#ff4d4d' : '#2ecc71'; 
-
-      const now = Date.now();
-
-      if (!dataMap[symbol]) {
-        const spawnPos = findEmptySpawnPosition();
-
-        dataMap[symbol] = {
-          id: symbol,
-          liquidations: [],
-          value: 0,
-          radius: 0,
-          color: color,
-          x: spawnPos.x,
-          y: spawnPos.y,
-          vx: spawnPos.vx || 0,
-          vy: spawnPos.vy || 0,
-          isMassive: false,
-          birthTime: now,
-          mass: 0,
-          isFixed: false
-        };
-        nodes.push(dataMap[symbol]);
+        tickerContent.style.transform = `translateX(${tickerPosition}px)`;
+        requestAnimationFrame(scrollTicker);
       }
-
-      const data = dataMap[symbol];
-
-      data.liquidations.push({
-        timestamp: now,
-        amount: amountUSD,
-        side: side
-      });
-
-      const cutoffTime = now - TIME_WINDOW;
-      const validLiquidations = data.liquidations.filter(
-        liq => liq.timestamp > cutoffTime
-      );
-
-      data.liquidations = validLiquidations;
-      data.value = validLiquidations.reduce((sum, liq) => sum + liq.amount, 0);
-      data.color = color;
-
-      updateRadius(dataMap[symbol]);
-      dataMap[symbol].isMassive = data.value > MASS_THRESHOLD;
-      updateMass(dataMap[symbol]);
-
-      const cascade = detectCascade(side, symbol, amountUSD);
-      if (cascade.active) {
-        triggerCascadeAlert(cascade);
-      }
-
-      simulation.nodes(nodes);
-      simulation.alpha(0.5).restart();
+      scrollTicker();
     }
 
-    function updateRadius(node) {
-      // Fórmula simple para convertir USD a pixeles de radio
-      // Math.sqrt es importante para que el área represente el valor, no el radio
-      node.radius = Math.sqrt(node.value) * SCALE_FACTOR;
-      
-      // Limitar tamaño máximo para que no ocupe toda la pantalla
-      if (node.radius > 150) node.radius = 150;
-      if (node.radius < 15) node.radius = 15; // Tamaño mínimo legible
+    async function updateTicker() {
+      try {
+        const [tickerResponse, spotResponse, futuresResponse, indexResponse] = await Promise.all([
+          fetch(TICKER_24HR_URL),
+          fetch(SPOT_TICKER_URL),
+          fetch(FUTURES_TICKER_URL),
+          fetch(INDEX_PRICE_URL)
+        ]);
 
-      if (node.liquidations && node.liquidations.length > 0) {
-        const now = Date.now();
-        const avgAge = node.liquidations.reduce((sum, liq) =>
-          sum + (now - liq.timestamp), 0) / node.liquidations.length;
+        const tickerData = await tickerResponse.json();
+        const spotData = await spotResponse.json();
+        const futuresData = await futuresResponse.json();
+        const indexData = await indexResponse.json();
 
-        const ageRatio = avgAge / TIME_WINDOW;
-        node.opacity = 1 - (ageRatio * 0.4);
-      } else {
-        node.opacity = 1;
-      }
-    }
+        const newItems = [];
 
-    function cleanExpiredLiquidations() {
-      const now = Date.now();
-      const cutoffTime = now - TIME_WINDOW;
-      let hadChanges = false;
+        const prices = [
+          { label: 'SPOT BTCUSDT', price: parseFloat(spotData.price).toFixed(2) },
+          { label: 'FUTURES BTCUSDT', price: parseFloat(futuresData.price).toFixed(2) },
+          { label: 'INDEX PRICE', price: parseFloat(indexData.markPrice).toFixed(2) },
+          { label: 'ESTIMATED SETTLEMENT PRICE', price: parseFloat(indexData.estimatedSettlePrice).toFixed(2) }
+        ];
 
-      nodes.forEach(node => {
-        const symbol = node.id;
-        const data = dataMap[symbol];
-
-        if (!data || !data.liquidations) return;
-
-        const oldValue = data.value;
-        const wasMassive = node.isMassive;
-
-        const validLiquidations = data.liquidations.filter(
-          liq => liq.timestamp > cutoffTime
-        );
-
-        if (validLiquidations.length === 0) {
-          node._markedForDeletion = true;
-          hadChanges = true;
-          return;
-        }
-
-        data.liquidations = validLiquidations;
-        const newValue = validLiquidations.reduce((sum, liq) => sum + liq.amount, 0);
-
-        if (newValue !== oldValue) {
-          data.value = newValue;
-        }
-
-        updateRadius(node);
-        node.isMassive = newValue > MASS_THRESHOLD;
-        updateMass(node);
-        hadChanges = true;
-
-        if (wasMassive !== node.isMassive) {
-          hadChanges = true;
-        }
-      });
-
-      nodes = nodes.filter(node => {
-        if (node._markedForDeletion) {
-          delete dataMap[node.id];
-          return false;
-        }
-        return true;
-      });
-
-      if (hadChanges) {
-        simulation.nodes(nodes);
-        simulation.alpha(0.2).restart();
-      }
-    }
-
-    function findEmptySpawnPosition() {
-      const maxAttempts = 20;
-      const spawnRadius = Math.min(width, height) * 0.35;
-
-      for (let i = 0; i < maxAttempts; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const r = spawnRadius * (0.6 + Math.random() * 0.4);
-        const x = Math.cos(angle) * r;
-        const y = Math.sin(angle) * r;
-        const safe = nodes.every(node => {
-          const dx = node.x - x;
-          const dy = node.y - y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          return dist > node.radius + 40;
-        });
-        if (safe) {
-          const vx = -Math.sin(angle) * 0.5;
-          const vy = Math.cos(angle) * 0.5;
-          return { x, y, vx, vy };
-        }
-      }
-
-      return {
-        x: (Math.random() - 0.5) * width * 0.2,
-        y: (Math.random() - 0.5) * height * 0.2,
-        vx: 0,
-        vy: 0
-      };
-    }
-
-    function detectCascade(side, symbol, amount) {
-      const now = Date.now();
-      recentLiquidations.push({ timestamp: now, side, symbol, amount });
-      recentLiquidations = recentLiquidations.filter(
-        liq => liq.timestamp > now - CASCADE_WINDOW
-      );
-
-      const sideVolume = recentLiquidations
-        .filter(liq => liq.side === side)
-        .reduce((sum, liq) => sum + liq.amount, 0);
-
-      return {
-        active: sideVolume >= CASCADE_THRESHOLD,
-        side,
-        volume: sideVolume
-      };
-    }
-
-    function triggerCascadeAlert(cascade) {
-      const status = document.getElementById('cascade-status');
-      if (!status) return;
-
-      const label = cascade.side === 'SELL' ? 'Venta forzada' : 'Compra forzada';
-      status.style.color = cascade.side === 'SELL' ? '#ff4d4d' : '#2ecc71';
-      status.textContent = `⚡ Cascada ${label}: ${formatMoney(cascade.volume)}`;
-      lastCascadeTimestamp = Date.now();
-    }
-
-    function createTimeWindowPanel() {
-      const panel = document.createElement('div');
-      panel.id = 'time-panel';
-      panel.style.cssText = `
-        position: absolute;
-        top: 70px;
-        left: 20px;
-        background: rgba(0, 0, 0, 0.85);
-        border: 1px solid #444;
-        border-radius: 8px;
-        padding: 15px;
-        font-size: 12px;
-        color: #aaa;
-        min-width: 200px;
-      `;
-
-      panel.innerHTML = `
-        <div style="font-weight: bold; margin-bottom: 8px; color: #fff;">
-          📊 Ventana Temporal: 5 min
-        </div>
-        <div id="active-symbols">Símbolos activos: <span style="color: #4CAF50;">0</span></div>
-        <div id="total-volume">Volumen total: <span style="color: #2196F3;">$0</span></div>
-        <div id="massive-count">Atractores: <span style="color: #ff9800;">0</span></div>
-        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333;">
-          <div id="cascade-status" style="color: #666;">Sin cascadas</div>
-        </div>
-      `;
-
-      document.body.appendChild(panel);
-
-      addDebugControls();
-      setInterval(updateTimePanel, 1000);
-    }
-
-    function updateTimePanel() {
-      const totalVolume = nodes.reduce((sum, n) => sum + n.value, 0);
-      const massiveCount = nodes.filter(n => n.isMassive).length;
-
-      const activeSymbols = document.getElementById('active-symbols');
-      const totalVolumeEl = document.getElementById('total-volume');
-      const massiveCountEl = document.getElementById('massive-count');
-
-      if (!activeSymbols || !totalVolumeEl || !massiveCountEl) return;
-
-      activeSymbols.innerHTML =
-        `Símbolos activos: <span style="color: #4CAF50;">${nodes.length}</span>`;
-
-      totalVolumeEl.innerHTML =
-        `Volumen total: <span style="color: #2196F3;">${formatMoney(totalVolume)}</span>`;
-
-      massiveCountEl.innerHTML =
-        `Atractores: <span style="color: #ff9800;">${massiveCount}</span>`;
-
-      const cascadeStatus = document.getElementById('cascade-status');
-      if (cascadeStatus && Date.now() - lastCascadeTimestamp > CASCADE_WINDOW) {
-        cascadeStatus.style.color = '#666';
-        cascadeStatus.textContent = 'Sin cascadas';
-      }
-    }
-
-    // --- UTILIDADES ---
-    function formatMoney(amount) {
-      if (amount >= 1000000) return `$${(amount / 1000000).toFixed(1)}M`;
-      if (amount >= 1000) return `$${(amount / 1000).toFixed(0)}K`;
-      return `$${amount.toFixed(0)}`;
-    }
-
-    function updateMass(node) {
-      const baseMass = Math.pow(node.value, 0.6);
-      node.mass = node.isMassive
-        ? baseMass * MASSIVE_MULTIPLIER
-        : baseMass;
-
-      if (node.opacity < 0.7) {
-        node.mass *= node.opacity;
-      }
-    }
-
-    function applyGravitationalForces() {
-      nodes.forEach(node => {
-        if (node.isFixed) return;
-        if (!node.mass) return;
-
-        let fx = 0;
-        let fy = 0;
-
-        nodes.forEach(attractor => {
-          if (attractor === node) return;
-          if (!attractor.isMassive) return;
-          if (!attractor.mass) return;
-
-          const dx = attractor.x - node.x;
-          const dy = attractor.y - node.y;
-          const distanceSquared = dx * dx + dy * dy;
-          const distance = Math.sqrt(distanceSquared);
-
-          if (distance < MIN_GRAVITY_DISTANCE) return;
-
-          const forceMagnitude = GRAVITY_CONSTANT *
-            (node.mass * attractor.mass) / distanceSquared;
-
-          const forceX = (dx / distance) * forceMagnitude;
-          const forceY = (dy / distance) * forceMagnitude;
-
-          fx += forceX;
-          fy += forceY;
+        prices.forEach(item => {
+          const tickerItem = createTickerItem(item.label, `$${item.price}`);
+          newItems.push(tickerItem);
         });
 
-        node.vx += fx / node.mass;
-        node.vy += fy / node.mass;
+        await addTop3ToTicker(newItems);
 
-        if (fx !== 0 || fy !== 0) {
-          const forceTotal = Math.sqrt(fx * fx + fy * fy);
-          if (forceTotal > 0.01) {
-            const perpX = -fy / forceTotal;
-            const perpY = fx / forceTotal;
-            const orbitalSpeed = Math.sqrt(forceTotal / node.mass) * ORBIT_STABILITY;
-            node.vx += perpX * orbitalSpeed;
-            node.vy += perpY * orbitalSpeed;
+        const allItems = [...newItems, ...newItems.map(item => item.cloneNode(true))];
+
+        tickerContent.innerHTML = '';
+        allItems.forEach(item => tickerContent.appendChild(item));
+
+        if (!tickerInitialized) {
+          tickerInitialized = true;
+        } else if (tickerPosition <= -tickerContent.scrollWidth / 2) {
+          tickerPosition = 0;
+        }
+
+      } catch (error) {
+        console.error("Error al obtener los datos del ticker:", error);
+      }
+    }
+
+    async function addTop3ToTicker(newItems) {
+      const topLiquidated = Object.keys(liquidationFrequency)
+        .sort((a, b) => liquidationFrequency[b].count - liquidationFrequency[a].count)
+        .slice(0, 3);
+
+      const ticker24HrData = await fetch(TICKER_24HR_URL).then(response => response.json());
+
+      // Añadir el encabezado "TOP 3 MOST LIQ"
+      const headerItem = createTickerItem("TOP 3 MOST LIQ", undefined, undefined, "#FFD700");
+      newItems.push(headerItem);
+
+      topLiquidated.forEach(symbol => {
+        const pairData = ticker24HrData.find(data => data.symbol === symbol);
+        if (pairData) {
+          const price = parseFloat(pairData.lastPrice).toFixed(2);
+          const change = parseFloat(pairData.priceChangePercent).toFixed(2);
+          const changeColor = change >= 0 ? '#4CAF50' : '#FF5252';
+
+          const tickerItem = createTickerItem(
+            symbol,
+            `$${price}`,
+            `${change}%`,
+            changeColor
+          );
+          newItems.push(tickerItem);
+        }
+      });
+    }
+
+    function createTickerItem(label, price, change, color) {
+      const tickerItem = document.createElement('div');
+      tickerItem.className = 'ticker-item';
+      tickerItem.style.color = color || 'inherit';
+
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = label;
+      tickerItem.appendChild(labelSpan);
+
+      if (price !== undefined) {
+        const priceSpan = document.createElement('span');
+        priceSpan.textContent = price;
+        tickerItem.appendChild(priceSpan);
+      }
+
+      if (change !== undefined) {
+        const changeSpan = document.createElement('span');
+        changeSpan.textContent = change;
+        changeSpan.style.color = color;
+        tickerItem.appendChild(changeSpan);
+      }
+
+      return tickerItem;
+    }
+
+    function connectLiquidationWebSocket() {
+      const liquidationContent = document.getElementById('liquidation-content');
+      const ws = new WebSocket('wss://fstream.binance.com/ws/!forceOrder@arr');
+
+      ws.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        const liquidation = data.o;
+
+        if (liquidation) {
+          const newLiquidation = {
+            symbol: liquidation.s,
+            price: liquidation.p,
+            quantity: liquidation.q,
+            side: liquidation.S
+          };
+
+          liquidations.push(newLiquidation);
+
+          if (liquidations.length > MAX_LIQUIDATIONS_MEMORY) {
+            liquidations.shift();
           }
+
+          liquidationFrequency[newLiquidation.symbol] = liquidationFrequency[newLiquidation.symbol] || { count: 0, total: 0 };
+          liquidationFrequency[newLiquidation.symbol].count++;
+          liquidationFrequency[newLiquidation.symbol].total += parseFloat(newLiquidation.price);
+
+          showTopLiquidatedCoins();
+
+          liquidationContent.innerHTML = '';
+
+          liquidations.slice(-MAX_LIQUIDATIONS).forEach(liquidation => {
+            const item = document.createElement('div');
+            item.className = 'liquidation-item';
+
+            const symbolSpan = document.createElement('span');
+            symbolSpan.textContent = `Símbolo: ${liquidation.symbol}`;
+
+            const priceSpan = document.createElement('span');
+            priceSpan.textContent = `Precio: ${liquidation.price}`;
+
+            const quantitySpan = document.createElement('span');
+            quantitySpan.textContent = `Cantidad: ${liquidation.quantity}`;
+
+            const liquidationColor = liquidation.side === 'SELL' ? '#FF5252' : '#4CAF50';
+            item.style.color = liquidationColor;
+
+            item.appendChild(symbolSpan);
+            item.appendChild(priceSpan);
+            item.appendChild(quantitySpan);
+
+            liquidationContent.appendChild(item);
+          });
+        } else {
+          console.error("Datos inesperados:", data);
         }
+      };
+
+      ws.onclose = function() {
+        console.error("Conexión de WebSocket cerrada, reconectando...");
+        setTimeout(connectLiquidationWebSocket, 1000);
+      };
+
+      ws.onerror = function(error) {
+        console.error("Error en WebSocket:", error);
+      };
+    }
+
+    function showTopLiquidatedCoins() {
+      const topLiquidated = Object.entries(liquidationFrequency)
+        .sort((a, b) => b[1].count - a[1].count)
+        .slice(0, 3);
+
+      let topContainer = document.getElementById('top-liquidated');
+      if (!topContainer) {
+        topContainer = document.createElement('div');
+        topContainer.id = 'top-liquidated';
+        topContainer.style.width = '90%';
+        topContainer.style.maxWidth = '800px';
+        topContainer.style.backgroundColor = '#fff';
+        topContainer.style.color = '#000';
+        topContainer.style.padding = '10px';
+        topContainer.style.marginTop = '20px';
+        topContainer.style.borderRadius = '10px';
+        topContainer.style.boxShadow = '0 2px 5px rgba(0,0,0,0.5)';
+        document.body.appendChild(topContainer);
+      }
+
+      topContainer.innerHTML = '<h2>Top 3 Monedas Más Liquidadas</h2>';
+
+      topLiquidated.forEach(([symbol, data]) => {
+        const item = document.createElement('div');
+        item.style.display = 'flex';
+        item.style.justifyContent = 'space-between';
+        item.style.padding = '5px 0';
+        item.style.borderBottom = '1px solid #ccc';
+
+        const symbolSpan = document.createElement('span');
+        symbolSpan.textContent = `Símbolo: ${symbol}`;
+
+        const countSpan = document.createElement('span');
+        countSpan.textContent = `Liquidaciones: ${data.count}`;
+
+        const averagePrice = (data.total / data.count).toFixed(2);
+        const avgPriceSpan = document.createElement('span');
+        avgPriceSpan.textContent = `Precio Promedio: $${averagePrice}`;
+
+        item.appendChild(symbolSpan);
+        item.appendChild(countSpan);
+        item.appendChild(avgPriceSpan);
+
+        topContainer.appendChild(item);
       });
     }
 
-    function limitVelocities() {
-      nodes.forEach(node => {
-        if (node.isFixed) {
-          node.vx = 0;
-          node.vy = 0;
-          return;
-        }
-
-        const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
-
-        if (speed > MAX_VELOCITY) {
-          const scale = MAX_VELOCITY / speed;
-          node.vx *= scale;
-          node.vy *= scale;
-        }
-
-        if (speed > MAX_VELOCITY * 0.7) {
-          node.vx *= 0.95;
-          node.vy *= 0.95;
-        }
-      });
-    }
-
-    function initTrails() {
-      const container = document.getElementById('bubble-chart');
-
-      trailCanvas = document.createElement('canvas');
-      trailCanvas.width = width;
-      trailCanvas.height = height;
-      trailCanvas.style.position = 'absolute';
-      trailCanvas.style.top = '0';
-      trailCanvas.style.left = '0';
-      trailCanvas.style.pointerEvents = 'none';
-      trailCanvas.style.opacity = '0.3';
-
-      container.insertBefore(trailCanvas, container.firstChild);
-      trailCtx = trailCanvas.getContext('2d');
-
-      setInterval(() => {
-        if (!trailsEnabled) return;
-        trailCtx.fillStyle = 'rgba(26, 26, 26, 0.05)';
-        trailCtx.fillRect(0, 0, width, height);
-      }, 50);
-    }
-
-    function drawTrail(node) {
-      if (!trailsEnabled || !trailCtx) return;
-
-      const centerX = width / 2;
-      const centerY = height / 2;
-
-      trailCtx.beginPath();
-      trailCtx.arc(
-        centerX + node.x,
-        centerY + node.y,
-        2,
-        0,
-        Math.PI * 2
-      );
-      trailCtx.fillStyle = node.color;
-      trailCtx.globalAlpha = node.opacity * 0.5;
-      trailCtx.fill();
-      trailCtx.globalAlpha = 1;
-    }
-
-    function addDebugControls() {
-      const panel = document.getElementById('time-panel');
-      const controls = document.createElement('div');
-      controls.innerHTML = `
-        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333;">
-          <label style="display: block; margin: 5px 0;">
-            <input type="checkbox" id="trails-toggle" ${trailsEnabled ? 'checked' : ''}>
-            Mostrar órbitas
-          </label>
-          <label style="display: block; margin: 5px 0;">
-            Gravedad: <span id="gravity-value">${GRAVITY_CONSTANT}</span>
-          </label>
-          <input type="range" id="gravity-slider" 
-            min="0.00001" max="0.0003" step="0.00001" 
-            value="${GRAVITY_CONSTANT}" style="width: 100%;">
-        </div>
-      `;
-      panel.appendChild(controls);
-
-      document.getElementById('trails-toggle').addEventListener('change', (e) => {
-        trailsEnabled = e.target.checked;
-        if (!trailsEnabled && trailCtx) {
-          trailCtx.fillStyle = '#1a1a1a';
-          trailCtx.fillRect(0, 0, width, height);
-        }
-      });
-
-      document.getElementById('gravity-slider').addEventListener('input', (e) => {
-        GRAVITY_CONSTANT = parseFloat(e.target.value);
-        document.getElementById('gravity-value').textContent = GRAVITY_CONSTANT.toFixed(5);
-      });
-    }
-
-    // --- ARRANQUE ---
     document.addEventListener('DOMContentLoaded', () => {
-      initChart();
-      initTrails();
-      createTimeWindowPanel();
-      connectWebSocket();
+      updateTicker().then(() => {
+        startTicker();
+      });
+      setInterval(updateTicker, 60000);
+      connectLiquidationWebSocket();
     });
-
   </script>
 </body>
 </html>
