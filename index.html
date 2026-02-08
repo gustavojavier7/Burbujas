@@ -14,9 +14,9 @@
       --border-color: #334155;
       --text-main: #f8fafc;
       --text-muted: #94a3b8;
-      --color-long: #10b981; /* Verde esmeralda */
-      --color-short: #ef4444; /* Rojo rosa */
-      --color-accent: #eab308; /* Amarillo oro */
+      --color-long: #10b981;
+      --color-short: #ef4444;
+      --color-accent: #eab308;
     }
 
     * {
@@ -63,6 +63,14 @@
         transform: translateX(-50%);
       }
     }
+
+    .ticker-item {
+      display: inline-block;
+      padding: 0 25px;
+      border-right: 1px solid var(--border-color);
+    }
+    .ticker-item:last-child { border-right: none; }
+    .ticker-item span { margin-right: 8px; }
 
     /* Separador invisible entre los dos buffers */
     .ticker-separator {
@@ -145,7 +153,6 @@
       flex-direction: column;
     }
 
-    /* Animación de entrada */
     @keyframes slideIn {
       from { opacity: 0; transform: translateY(-10px); }
       to { opacity: 1; transform: translateY(0); }
@@ -165,7 +172,6 @@
     .liquidation-item span:nth-child(2) { text-align: center; }
     .liquidation-item span:nth-child(3) { text-align: right; font-weight: bold; }
 
-    /* Liquidaciones grandes (>150% de la media) */
     .liquidation-item.huge {
       font-weight: bold;
       font-size: 1.05em;
@@ -174,7 +180,6 @@
       padding-left: 8px;
     }
 
-    /* Scrollbar personalizada */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
@@ -231,7 +236,6 @@
       white-space: nowrap;
     }
 
-    /* Utilidades de color */
     .long-color { color: var(--color-long) !important; }
     .short-color { color: var(--color-short) !important; }
     .highlight { color: var(--color-accent) !important; font-size: 1.05em; }
@@ -320,7 +324,7 @@
     const INDEX_PRICE_URL = "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT";
     const MAX_LIQUIDATIONS = 50;
     const MAX_LIQUIDATIONS_MEMORY = 100;
-    const TICKER_ANIMATION_DURATION = 40000; // 40 segundos en ms (debe coincidir con CSS)
+    const TICKER_ANIMATION_DURATION = 40000; // 40 segundos
 
     let tickerContent = document.getElementById("ticker");
     let liquidations = [];
@@ -330,8 +334,6 @@
     let largestLiquidation = { amount: 0, symbol: '', side: '' };
     let liquidationValues = [];
     let lastTop3 = [];
-
-    // Variables para Double Buffering del Ticker
     let tickerUpdatePending = false;
     let pendingTickerData = null;
 
@@ -362,10 +364,6 @@
       return false;
     }
 
-    // ========================================
-    // TICKER: DOUBLE BUFFERING
-    // ========================================
-    
     async function fetchTickerData() {
       try {
         const [tickerResponse, spotResponse, futuresResponse, indexResponse] = await Promise.all([
@@ -380,7 +378,6 @@
         const futuresData = await futuresResponse.json();
         const indexData = await indexResponse.json();
 
-        // Guardar datos para actualizar después (cuando termine el ciclo de animación)
         pendingTickerData = {
           ticker24Hr: tickerData,
           spot: spotData,
@@ -415,17 +412,19 @@
 
       await addTop3ToTicker(newItems, ticker24Hr);
 
+      // Crear separador de pantalla completa entre buffers
       const separator = document.createElement('div');
       separator.className = 'ticker-separator';
 
       const clonedItems = newItems.map(item => item.cloneNode(true));
+      
+      // Estructura: [datos] + [separador 100vw] + [datos clonados]
       const allItems = [...newItems, separator, ...clonedItems];
 
-      // Actualizar DOM (la animación CSS se reinicia automáticamente)
       tickerContent.innerHTML = '';
       allItems.forEach(item => tickerContent.appendChild(item));
 
-      // Reiniciar animación para evitar saltos
+      // Reiniciar animación suavemente
       tickerContent.style.animation = 'none';
       requestAnimationFrame(() => {
         tickerContent.style.animation = 'scroll-left 40s linear infinite';
@@ -435,9 +434,7 @@
       pendingTickerData = null;
     }
 
-    // Escuchar cuando la animación completa un ciclo
     tickerContent.addEventListener('animationiteration', () => {
-      // La animación completó un ciclo, es seguro actualizar sin saltos visibles
       updateTickerDOM();
     });
 
@@ -495,10 +492,6 @@
 
       return tickerItem;
     }
-
-    // ========================================
-    // LIQUIDACIONES WEBSOCKET
-    // ========================================
 
     function connectLiquidationWebSocket() {
       const liquidationContent = document.getElementById('liquidation-content');
@@ -572,7 +565,6 @@
           updateStatsPanel();
           showTopLiquidatedCoins();
 
-          // Si el TOP 3 cambió, hacer fetch de nuevos datos (se aplicarán en el próximo ciclo)
           if (hasTop3Changed()) {
             fetchTickerData();
           }
@@ -734,18 +726,9 @@
       }
     }
 
-    // ========================================
-    // INICIALIZACIÓN
-    // ========================================
-
     document.addEventListener('DOMContentLoaded', () => {
-      // Cargar ticker inicial inmediatamente
       fetchTickerData().then(() => updateTickerDOM());
-      
-      // Fetch de datos cada 60 segundos (se aplicarán cuando termine el ciclo de animación)
       setInterval(fetchTickerData, 60000);
-      
-      // Conectar WebSocket de liquidaciones
       connectLiquidationWebSocket();
     });
   </script>
