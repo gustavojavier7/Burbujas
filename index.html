@@ -347,67 +347,83 @@
     }
 
     function startTicker() {
+  let animationFrame;
+  
   function scrollTicker() {
     tickerPosition -= tickerSpeed;
     
-    // Resetear suavemente cuando llegamos al final del primer set de items
-    // En lugar de scrollWidth/2, usar el ancho real de un set completo
-    const singleSetWidth = tickerContent.scrollWidth / 2;
+    // Calcular el ancho de un set completo
+    const totalWidth = tickerContent.scrollWidth;
+    const singleSetWidth = totalWidth / 2;
     
+    // Cuando pasamos completamente el primer set, volver al inicio sin salto
     if (Math.abs(tickerPosition) >= singleSetWidth) {
-      tickerPosition = 0;
+      tickerPosition = tickerPosition + singleSetWidth;
     }
     
     tickerContent.style.transform = `translateX(${tickerPosition}px)`;
-    requestAnimationFrame(scrollTicker);
+    animationFrame = requestAnimationFrame(scrollTicker);
   }
+  
   scrollTicker();
 }
 
     async function updateTicker() {
-      try {
-        const [tickerResponse, spotResponse, futuresResponse, indexResponse] = await Promise.all([
-          fetch(TICKER_24HR_URL),
-          fetch(SPOT_TICKER_URL),
-          fetch(FUTURES_TICKER_URL),
-          fetch(INDEX_PRICE_URL)
-        ]);
+  try {
+    const [tickerResponse, spotResponse, futuresResponse, indexResponse] = await Promise.all([
+      fetch(TICKER_24HR_URL),
+      fetch(SPOT_TICKER_URL),
+      fetch(FUTURES_TICKER_URL),
+      fetch(INDEX_PRICE_URL)
+    ]);
 
-        const tickerData = await tickerResponse.json();
-        const spotData = await spotResponse.json();
-        const futuresData = await futuresResponse.json();
-        const indexData = await indexResponse.json();
+    const tickerData = await tickerResponse.json();
+    const spotData = await spotResponse.json();
+    const futuresData = await futuresResponse.json();
+    const indexData = await indexResponse.json();
 
-        const newItems = [];
+    const newItems = [];
 
-        const prices = [
-          { label: 'SPOT BTC', price: parseFloat(spotData.price).toFixed(2) },
-          { label: 'FUTURES BTC', price: parseFloat(futuresData.price).toFixed(2) },
-          { label: 'INDEX PRICE', price: parseFloat(indexData.markPrice).toFixed(2) }
-        ];
+    const prices = [
+      { label: 'SPOT BTC', price: parseFloat(spotData.price).toFixed(2) },
+      { label: 'FUTURES BTC', price: parseFloat(futuresData.price).toFixed(2) },
+      { label: 'INDEX PRICE', price: parseFloat(indexData.markPrice).toFixed(2) }
+    ];
 
-        prices.forEach(item => {
-          const tickerItem = createTickerItem(item.label, `$${item.price}`, undefined, 'var(--text-main)');
-          newItems.push(tickerItem);
-        });
+    prices.forEach(item => {
+      const tickerItem = createTickerItem(item.label, `$${item.price}`, undefined, 'var(--text-main)');
+      newItems.push(tickerItem);
+    });
 
-        await addTop3ToTicker(newItems, tickerData);
+    await addTop3ToTicker(newItems, tickerData);
 
-        const allItems = [...newItems, ...newItems.map(item => item.cloneNode(true))];
+    // CAMBIO CLAVE: Duplicar clonando profundamente
+    const clonedItems = newItems.map(item => item.cloneNode(true));
+    const allItems = [...newItems, ...clonedItems];
 
-        tickerContent.innerHTML = '';
-        allItems.forEach(item => tickerContent.appendChild(item));
+    // Guardar posición actual antes de actualizar
+    const wasScrolling = tickerInitialized;
+    const currentPosition = tickerPosition;
 
-        if (!tickerInitialized) {
-          tickerInitialized = true;
-        } else if (tickerPosition <= -tickerContent.scrollWidth / 2) {
-          tickerPosition = 0;
-        }
+    tickerContent.innerHTML = '';
+    allItems.forEach(item => tickerContent.appendChild(item));
 
-      } catch (error) {
-        console.error("Error al obtener los datos del ticker:", error);
+    // Restaurar posición si ya estaba inicializado
+    if (wasScrolling) {
+      // No resetear la posición, mantener el scroll continuo
+      const singleSetWidth = tickerContent.scrollWidth / 2;
+      // Si la posición excede el ancho de un set, ajustar
+      if (Math.abs(currentPosition) >= singleSetWidth) {
+        tickerPosition = 0;
       }
+    } else {
+      tickerInitialized = true;
     }
+
+  } catch (error) {
+    console.error("Error al obtener los datos del ticker:", error);
+  }
+}
 
     async function addTop3ToTicker(newItems, ticker24HrData) {
       const topLiquidated = Object.keys(liquidationFrequency)
