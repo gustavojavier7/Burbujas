@@ -3,210 +3,292 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Monitor de Cotizaciones y Liquidaciones Forzosas</title>
+  <title>Crypto Liquidation Monitor</title>
+  <!-- Fuentes de Google -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  
   <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --border-color: #334155;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --color-long: #10b981; /* Verde esmeralda */
+      --color-short: #ef4444; /* Rojo rosa */
+      --color-accent: #eab308; /* Amarillo oro */
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
-      font-family: Arial, sans-serif;
-      background-color: #f0f0f0;
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
       margin: 0;
       padding: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
+      min-height: 100vh;
     }
 
+    /* --- TICKER --- */
     .ticker-container {
-      overflow: hidden;
       width: 100%;
+      background-color: var(--card-bg);
+      border-bottom: 1px solid var(--border-color);
+      padding: 12px 0;
+      overflow: hidden;
       white-space: nowrap;
-      background-color: #fff;
-      color: #000;
-      padding: 10px 0;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-      margin-bottom: 20px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      margin-bottom: 30px;
     }
 
     .ticker-content {
       display: inline-flex;
-      flex-wrap: nowrap;
-      white-space: nowrap;
       will-change: transform;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.95em;
     }
 
     .ticker-item {
       display: inline-block;
-      padding: 0 20px;
-      font-size: 1.2em;
+      padding: 0 25px;
+      border-right: 1px solid var(--border-color);
+    }
+    .ticker-item:last-child { border-right: none; }
+    .ticker-item span { margin-right: 8px; }
+
+    /* --- LAYOUT PRINCIPAL --- */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 25px;
+      width: 95%;
+      max-width: 1200px;
+      margin-bottom: 40px;
     }
 
-    .ticker-item span {
-      margin-right: 10px;
+    @media (min-width: 850px) {
+      .dashboard-grid {
+        grid-template-columns: 1.5fr 1fr;
+      }
     }
 
+    /* --- TARJETAS GLOBALES --- */
+    .card {
+      background-color: var(--card-bg);
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      transition: border-color 0.5s ease;
+    }
+
+    .card-title {
+      font-size: 1.1em;
+      font-weight: 600;
+      color: var(--color-accent);
+      margin-top: 0;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-color);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* --- CAJA DE LIQUIDACIONES --- */
     .liquidation-box {
-      width: 90%;
-      max-width: 800px;
-      height: 300px;
-      background-color: #222;
-      color: #fff;
-      padding: 10px;
-      overflow-y: auto;
+      height: 450px;
       position: relative;
-      border-radius: 10px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.5);
     }
 
     .liquidation-header {
-      font-size: 0.9em;
-      padding: 10px 0 5px 0;
-      border-bottom: 2px solid #FFD700;
       display: flex;
       justify-content: space-between;
-      font-weight: bold;
-      color: #FFD700;
-      position: sticky;
-      top: 0;
-      background-color: #222;
-      z-index: 1;
+      font-size: 0.85em;
+      color: var(--text-muted);
+      padding-bottom: 10px;
+      margin-bottom: 10px;
+      border-bottom: 1px solid var(--border-color);
+      font-weight: 600;
+      text-transform: uppercase;
     }
 
-    .liquidation-header span {
-      display: inline-block;
-      padding: 0 10px;
-    }
+    .liquidation-header span { flex: 1; }
+    .liquidation-header span:nth-child(2) { text-align: center; }
+    .liquidation-header span:nth-child(3) { text-align: right; }
 
     .liquidation-content {
-      position: absolute;
-      bottom: 0;
-      width: 100%;
+      overflow-y: auto;
+      height: calc(100% - 40px);
       display: flex;
       flex-direction: column;
     }
 
+    /* Animación de entrada */
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
     .liquidation-item {
-      font-size: 1em;
-      padding: 5px 0;
-      border-bottom: 1px solid #444;
-      display: flex;
-      justify-content: space-between;
-    }
-
-    .liquidation-item span {
-      display: inline-block;
-      padding: 0 10px;
-    }
-
-    #top-liquidated h2 {
-      margin-top: 0;
-    }
-
-    #top-liquidated div {
-      font-size: 1em;
-    }
-
-    .stats-panel {
-      width: 90%;
-      max-width: 800px;
-      background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-      color: #fff;
-      padding: 20px;
-      margin: 20px 0;
-      border-radius: 10px;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-      font-family: 'Courier New', monospace;
-    }
-
-    .stats-panel h3 {
-      margin: 0 0 15px 0;
-      text-align: center;
-      font-size: 1.3em;
-      border-bottom: 2px solid #FFD700;
-      padding-bottom: 10px;
-    }
-
-    .stats-row {
       display: flex;
       justify-content: space-between;
       padding: 8px 0;
-      border-bottom: 1px solid rgba(255,255,255,0.1);
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.95em;
+      animation: slideIn 0.3s ease-out;
     }
 
-    .stats-label {
+    .liquidation-item span { flex: 1; }
+    .liquidation-item span:nth-child(2) { text-align: center; }
+    .liquidation-item span:nth-child(3) { text-align: right; font-weight: bold; }
+
+    /* Liquidaciones grandes (>150% de la media) */
+    .liquidation-item.huge {
       font-weight: bold;
+      font-size: 1.05em;
+      background: rgba(234, 179, 8, 0.1);
+      border-left: 3px solid var(--color-accent);
+      padding-left: 8px;
     }
 
-    .stats-value {
-      text-align: right;
+    /* Scrollbar personalizada */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+    /* --- ESTADÍSTICAS --- */
+    .stats-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border-color);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9em;
+    }
+    .stats-row:last-child { border-bottom: none; }
+
+    .stats-label { color: var(--text-muted); }
+    .stats-value { font-weight: bold; text-align: right; }
+
+    /* --- TOP 3 MONEDAS --- */
+    .top-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      margin-bottom: 10px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 8px;
+      border-left: 4px solid var(--color-accent);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9em;
     }
 
-    .long-color {
-      color: #4CAF50;
+    .top-item div {
+      display: flex;
+      flex-direction: column;
     }
+    .top-item .top-symbol { font-weight: bold; font-size: 1.1em; color: var(--text-main); }
+    .top-item .top-detail { color: var(--text-muted); font-size: 0.85em; margin-top: 4px; }
 
-    .short-color {
-      color: #FF5252;
-    }
+    /* Utilidades de color */
+    .long-color { color: var(--color-long) !important; }
+    .short-color { color: var(--color-short) !important; }
+    .highlight { color: var(--color-accent) !important; font-size: 1.05em; }
 
-    .highlight {
-      color: #FFD700;
-      font-size: 1.1em;
-    }
   </style>
 </head>
 <body>
+
+  <!-- TICKER -->
   <div class="ticker-container">
     <div class="ticker-content" id="ticker">
-      <!-- El contenido del ticker se llenará con JavaScript -->
+      Cargando datos del mercado...
     </div>
   </div>
 
-  <div class="liquidation-box">
-    <div class="liquidation-header">
-      <span style="width: 33%;">Símbolo</span>
-      <span style="width: 33%; text-align: center;">Precio</span>
-      <span style="width: 33%; text-align: right;">Cantidad</span>
+  <div class="dashboard-grid">
+    <!-- CAJA DE LIQUIDACIONES -->
+    <div class="card liquidation-box">
+      <div class="card-title">🔴 Liquidaciones en Vivo (Futuros)</div>
+      <div class="liquidation-header">
+        <span>Símbolo</span>
+        <span>Precio</span>
+        <span>Cantidad</span>
+      </div>
+      <div class="liquidation-content" id="liquidation-content">
+        <!-- JS inyecta aquí -->
+      </div>
     </div>
-    <div class="liquidation-content" id="liquidation-content">
-      <!-- Las liquidaciones se llenarán aquí con JavaScript -->
+
+    <!-- COLUMNA DERECHA -->
+    <div style="display: flex; flex-direction: column; gap: 25px;">
+      
+      <!-- ESTADÍSTICAS -->
+      <div class="card">
+        <div class="card-title">📊 Estadísticas (Últimas 100 Liq.)</div>
+        <div class="stats-row">
+          <span class="stats-label">LONG (Ventas Forzadas):</span>
+          <span class="stats-value long-color" id="long-liquidated">$0 (0%)</span>
+        </div>
+        <div class="stats-row">
+          <span class="stats-label">SHORT (Compras Forzadas):</span>
+          <span class="stats-value short-color" id="short-liquidated">$0 (0%)</span>
+        </div>
+        <div class="stats-row">
+          <span class="stats-label">Ratio Long/Short:</span>
+          <div style="flex: 1; margin: 0 15px;">
+            <div style="height: 18px; background: rgba(255,255,255,0.05); border-radius: 9px; overflow: hidden; border: 1px solid var(--border-color);">
+              <div id="ratio-bar" style="height: 100%; width: 50%; background: linear-gradient(90deg, var(--color-long), var(--color-short)); transition: width 1s ease;"></div>
+            </div>
+          </div>
+          <span class="stats-value highlight" id="ratio-ls">0.00</span>
+        </div>
+        <div class="stats-row">
+          <span class="stats-label">Promedio por Liq.:</span>
+          <span class="stats-value" id="avg-liquidation">$0</span>
+        </div>
+        <div class="stats-row">
+          <span class="stats-label">Umbral "Huge" (150%):</span>
+          <span class="stats-value" id="huge-threshold" style="color: var(--color-accent);">$50k (calibrando...)</span>
+        </div>
+        <div class="stats-row">
+          <span class="stats-label">Liq. Más Grande:</span>
+          <span class="stats-value highlight" id="largest-liquidation">-</span>
+        </div>
+        <div class="stats-row">
+          <span class="stats-label">Total Eventos:</span>
+          <span class="stats-value" id="total-count">0</span>
+        </div>
+      </div>
+
+      <!-- TOP 3 -->
+      <div class="card" id="top-liquidated-container">
+        <div class="card-title">🔥 Top 3 Más Liquidadas</div>
+        <div id="top-liquidated-content">
+          <span style="color: var(--text-muted); font-size: 0.9em;">Esperando datos...</span>
+        </div>
+      </div>
+
     </div>
   </div>
-
-  <div class="stats-panel" id="stats-panel">
-    <h3>📊 ESTADÍSTICAS DE LIQUIDACIONES</h3>
-    <div class="stats-row">
-      <span class="stats-label long-color">LONG Liquidated:</span>
-      <span class="stats-value long-color" id="long-liquidated">$0 (0%)</span>
-    </div>
-    <div class="stats-row">
-      <span class="stats-label short-color">SHORT Liquidated:</span>
-      <span class="stats-value short-color" id="short-liquidated">$0 (0%)</span>
-    </div>
-    <div class="stats-row">
-      <span class="stats-label">Ratio L/S:</span>
-      <span class="stats-value highlight" id="ratio-ls">0.00</span>
-    </div>
-    <div class="stats-row">
-      <span class="stats-label">Avg Liquidation:</span>
-      <span class="stats-value" id="avg-liquidation">$0</span>
-    </div>
-    <div class="stats-row">
-      <span class="stats-label">Largest:</span>
-      <span class="stats-value highlight" id="largest-liquidation">-</span>
-    </div>
-    <div class="stats-row">
-      <span class="stats-label">Total Liquidations:</span>
-      <span class="stats-value" id="total-count">0</span>
-    </div>
-  </div>
-
-  <!-- El contenedor para el Top 3 se creará dinámicamente -->
 
   <script>
     const TICKER_24HR_URL = "https://api.binance.com/api/v3/ticker/24hr";
     const SPOT_TICKER_URL = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT";
     const FUTURES_TICKER_URL = "https://fapi.binance.com/fapi/v1/ticker/price?symbol=BTCUSDT";
     const INDEX_PRICE_URL = "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT";
-    const MAX_LIQUIDATIONS = 30;
+    const MAX_LIQUIDATIONS = 50;
     const MAX_LIQUIDATIONS_MEMORY = 100;
 
     let tickerContent = document.getElementById("ticker");
@@ -218,6 +300,23 @@
     let longTotal = 0;
     let shortTotal = 0;
     let largestLiquidation = { amount: 0, symbol: '', side: '' };
+    let liquidationValues = []; // Para calcular la media móvil
+
+    function calculateAverageLiquidation() {
+      if (liquidationValues.length === 0) return 0;
+      const sum = liquidationValues.reduce((acc, val) => acc + val, 0);
+      return sum / liquidationValues.length;
+    }
+
+    function isHugeLiquidation(value) {
+      const average = calculateAverageLiquidation();
+      // Si no hay suficientes datos, usar umbral fijo inicial de $50k
+      if (liquidationValues.length < 10) {
+        return value > 50000;
+      }
+      // Liquidación es "huge" si supera 150% de la media
+      return value > (average * 1.5);
+    }
 
     function startTicker() {
       function scrollTicker() {
@@ -248,18 +347,17 @@
         const newItems = [];
 
         const prices = [
-          { label: 'SPOT BTCUSDT', price: parseFloat(spotData.price).toFixed(2) },
-          { label: 'FUTURES BTCUSDT', price: parseFloat(futuresData.price).toFixed(2) },
-          { label: 'INDEX PRICE', price: parseFloat(indexData.markPrice).toFixed(2) },
-          { label: 'ESTIMATED SETTLEMENT PRICE', price: parseFloat(indexData.estimatedSettlePrice).toFixed(2) }
+          { label: 'SPOT BTC', price: parseFloat(spotData.price).toFixed(2) },
+          { label: 'FUTURES BTC', price: parseFloat(futuresData.price).toFixed(2) },
+          { label: 'INDEX PRICE', price: parseFloat(indexData.markPrice).toFixed(2) }
         ];
 
         prices.forEach(item => {
-          const tickerItem = createTickerItem(item.label, `$${item.price}`);
+          const tickerItem = createTickerItem(item.label, `$${item.price}`, undefined, 'var(--text-main)');
           newItems.push(tickerItem);
         });
 
-        await addTop3ToTicker(newItems);
+        await addTop3ToTicker(newItems, tickerData);
 
         const allItems = [...newItems, ...newItems.map(item => item.cloneNode(true))];
 
@@ -277,30 +375,28 @@
       }
     }
 
-    async function addTop3ToTicker(newItems) {
+    async function addTop3ToTicker(newItems, ticker24HrData) {
       const topLiquidated = Object.keys(liquidationFrequency)
         .sort((a, b) => liquidationFrequency[b].count - liquidationFrequency[a].count)
         .slice(0, 3);
 
-      const ticker24HrData = await fetch(TICKER_24HR_URL).then(response => response.json());
-
-      // Añadir el encabezado "TOP 3 MOST LIQ"
-      const headerItem = createTickerItem("TOP 3 MOST LIQ", undefined, undefined, "#FFD700");
+      const headerItem = createTickerItem("🔥 TOP LIQ", undefined, undefined, "var(--color-accent)");
       newItems.push(headerItem);
+
+      if(topLiquidated.length === 0) {
+         newItems.push(createTickerItem("Recolectando datos...", ""));
+         return;
+      }
 
       topLiquidated.forEach(symbol => {
         const pairData = ticker24HrData.find(data => data.symbol === symbol);
         if (pairData) {
           const price = parseFloat(pairData.lastPrice).toFixed(2);
           const change = parseFloat(pairData.priceChangePercent).toFixed(2);
-          const changeColor = change >= 0 ? '#4CAF50' : '#FF5252';
+          const changeColor = change >= 0 ? 'var(--color-long)' : 'var(--color-short)';
+          const changeStr = change >= 0 ? `+${change}%` : `${change}%`;
 
-          const tickerItem = createTickerItem(
-            symbol,
-            `$${price}`,
-            `${change}%`,
-            changeColor
-          );
+          const tickerItem = createTickerItem(symbol, `$${price}`, changeStr, changeColor);
           newItems.push(tickerItem);
         }
       });
@@ -309,15 +405,16 @@
     function createTickerItem(label, price, change, color) {
       const tickerItem = document.createElement('div');
       tickerItem.className = 'ticker-item';
-      tickerItem.style.color = color || 'inherit';
-
+      
       const labelSpan = document.createElement('span');
       labelSpan.textContent = label;
+      labelSpan.style.color = "var(--text-muted)";
       tickerItem.appendChild(labelSpan);
 
       if (price !== undefined) {
         const priceSpan = document.createElement('span');
         priceSpan.textContent = price;
+        priceSpan.style.color = "var(--text-main)";
         tickerItem.appendChild(priceSpan);
       }
 
@@ -326,6 +423,8 @@
         changeSpan.textContent = change;
         changeSpan.style.color = color;
         tickerItem.appendChild(changeSpan);
+      } else if (color && !change && !price) {
+        labelSpan.style.color = color;
       }
 
       return tickerItem;
@@ -347,12 +446,24 @@
             side: liquidation.S
           };
 
-          liquidations.push(newLiquidation);
+          liquidations.unshift(newLiquidation);
 
           if (liquidations.length > MAX_LIQUIDATIONS_MEMORY) {
-            liquidations.shift();
+            liquidations.pop();
           }
 
+          // Calcular valor de esta liquidación
+          const liqValue = parseFloat(liquidation.p) * parseFloat(liquidation.q);
+          
+          // Agregar al array de valores para calcular media
+          liquidationValues.push(liqValue);
+          
+          // Mantener solo las últimas 100 para calcular la media
+          if (liquidationValues.length > MAX_LIQUIDATIONS_MEMORY) {
+            liquidationValues.shift();
+          }
+
+          // Recalcular frecuencias con las últimas 100
           liquidationFrequency = {};
           liquidations.forEach(liq => {
             liquidationFrequency[liq.symbol] = liquidationFrequency[liq.symbol] || { count: 0, total: 0 };
@@ -360,73 +471,72 @@
             liquidationFrequency[liq.symbol].total += parseFloat(liq.price);
           });
 
+          // Recalcular totales con las últimas 100
           longTotal = 0;
           shortTotal = 0;
           largestLiquidation = { amount: 0, symbol: '', side: '' };
 
           liquidations.forEach(liq => {
-            const liqValue = parseFloat(liq.price) * parseFloat(liq.quantity);
+            const liqVal = parseFloat(liq.price) * parseFloat(liq.quantity);
+            if (liq.side === 'SELL') { longTotal += liqVal; } 
+            else { shortTotal += liqVal; }
 
-            if (liq.side === 'SELL') {
-              longTotal += liqValue;
-            } else {
-              shortTotal += liqValue;
-            }
-
-            if (liqValue > largestLiquidation.amount) {
-              largestLiquidation = {
-                amount: liqValue,
-                symbol: liq.symbol,
-                side: liq.side
-              };
+            if (liqVal > largestLiquidation.amount) {
+              largestLiquidation = { amount: liqVal, symbol: liq.symbol, side: liq.side };
             }
           });
 
           updateStatsPanel();
-
           showTopLiquidatedCoins();
 
-          liquidationContent.innerHTML = '';
+          // ====== ALERTA SONORA CON UMBRAL DINÁMICO ======
+          if (isHugeLiquidation(liqValue)) {
+            const audio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-alert-quick-chime-766.mp3');
+            audio.volume = 0.2;
+            audio.play().catch(() => {});
+            
+            const liqBox = document.querySelector('.liquidation-box');
+            liqBox.style.borderColor = liquidation.side === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
+            setTimeout(() => liqBox.style.borderColor = 'var(--border-color)', 500);
+          }
 
-          liquidations.slice(-MAX_LIQUIDATIONS).forEach(liquidation => {
-            const item = document.createElement('div');
-            item.className = 'liquidation-item';
+          // ====== RENDERIZAR EN UI ======
+          const item = document.createElement('div');
+          item.className = 'liquidation-item';
 
-            const symbolSpan = document.createElement('span');
-            symbolSpan.textContent = liquidation.symbol;
-            symbolSpan.style.width = '33%';
+          // Agregar clase 'huge' si supera 150% de la media
+          if (isHugeLiquidation(liqValue)) {
+            item.classList.add('huge');
+          }
 
-            const priceSpan = document.createElement('span');
-            priceSpan.textContent = `$${parseFloat(liquidation.price).toFixed(2)}`;
-            priceSpan.style.width = '33%';
-            priceSpan.style.textAlign = 'center';
+          const symbolSpan = document.createElement('span');
+          symbolSpan.textContent = liquidation.symbol;
 
-            const quantitySpan = document.createElement('span');
-            quantitySpan.textContent = parseFloat(liquidation.quantity).toFixed(4);
-            quantitySpan.style.width = '33%';
-            quantitySpan.style.textAlign = 'right';
+          const priceSpan = document.createElement('span');
+          priceSpan.textContent = `$${parseFloat(liquidation.price).toFixed(2)}`;
 
-            const liquidationColor = liquidation.side === 'SELL' ? '#FF5252' : '#4CAF50';
-            item.style.color = liquidationColor;
+          const quantitySpan = document.createElement('span');
+          const totalValue = (liqValue / 1000).toFixed(1);
+          quantitySpan.textContent = `${parseFloat(liquidation.quantity).toFixed(2)} ($${totalValue}k)`;
 
-            item.appendChild(symbolSpan);
-            item.appendChild(priceSpan);
-            item.appendChild(quantitySpan);
+          const liquidationColor = liquidation.side === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
+          item.style.color = liquidationColor;
 
-            liquidationContent.appendChild(item);
-          });
-        } else {
-          console.error("Datos inesperados:", data);
+          item.appendChild(symbolSpan);
+          item.appendChild(priceSpan);
+          item.appendChild(quantitySpan);
+
+          liquidationContent.prepend(item);
+
+          if (liquidationContent.children.length > MAX_LIQUIDATIONS) {
+            liquidationContent.removeChild(liquidationContent.lastChild);
+          }
         }
       };
 
       ws.onclose = function() {
-        console.error("Conexión de WebSocket cerrada, reconectando...");
+        console.error("Conexión de WebSocket cerrada, reconectando en 1s...");
         setTimeout(connectLiquidationWebSocket, 1000);
-      };
-
-      ws.onerror = function(error) {
-        console.error("Error en WebSocket:", error);
       };
     }
 
@@ -435,83 +545,91 @@
         .sort((a, b) => b[1].count - a[1].count)
         .slice(0, 3);
 
-      let topContainer = document.getElementById('top-liquidated');
-      if (!topContainer) {
-        topContainer = document.createElement('div');
-        topContainer.id = 'top-liquidated';
-        topContainer.style.width = '90%';
-        topContainer.style.maxWidth = '800px';
-        topContainer.style.backgroundColor = '#fff';
-        topContainer.style.color = '#000';
-        topContainer.style.padding = '10px';
-        topContainer.style.marginTop = '20px';
-        topContainer.style.borderRadius = '10px';
-        topContainer.style.boxShadow = '0 2px 5px rgba(0,0,0,0.5)';
-        document.body.appendChild(topContainer);
-      }
-
-      topContainer.innerHTML = '<h2>Top 3 Monedas Más Liquidadas</h2>';
+      const topContent = document.getElementById('top-liquidated-content');
+      topContent.innerHTML = '';
 
       topLiquidated.forEach(([symbol, data]) => {
         const item = document.createElement('div');
-        item.style.display = 'flex';
-        item.style.justifyContent = 'space-between';
-        item.style.padding = '5px 0';
-        item.style.borderBottom = '1px solid #ccc';
+        item.className = 'top-item';
 
+        const leftDiv = document.createElement('div');
         const symbolSpan = document.createElement('span');
-        symbolSpan.textContent = `Símbolo: ${symbol}`;
-
+        symbolSpan.className = 'top-symbol';
+        symbolSpan.textContent = symbol;
+        
         const countSpan = document.createElement('span');
-        countSpan.textContent = `Liquidaciones: ${data.count}`;
+        countSpan.className = 'top-detail';
+        countSpan.textContent = `${data.count} liquidaciones`;
+        
+        leftDiv.appendChild(symbolSpan);
+        leftDiv.appendChild(countSpan);
 
+        const rightDiv = document.createElement('div');
+        rightDiv.style.alignItems = 'flex-end';
+        const avgLabel = document.createElement('span');
+        avgLabel.className = 'top-detail';
+        avgLabel.textContent = 'Precio Prom.';
+        
         const averagePrice = (data.total / data.count).toFixed(2);
         const avgPriceSpan = document.createElement('span');
-        avgPriceSpan.textContent = `Precio Promedio: $${averagePrice}`;
+        avgPriceSpan.style.fontFamily = "'JetBrains Mono', monospace";
+        avgPriceSpan.textContent = `$${averagePrice}`;
+        
+        rightDiv.appendChild(avgLabel);
+        rightDiv.appendChild(avgPriceSpan);
 
-        item.appendChild(symbolSpan);
-        item.appendChild(countSpan);
-        item.appendChild(avgPriceSpan);
+        item.appendChild(leftDiv);
+        item.appendChild(rightDiv);
 
-        topContainer.appendChild(item);
+        topContent.appendChild(item);
       });
     }
-
-    document.addEventListener('DOMContentLoaded', () => {
-      updateTicker().then(() => {
-        startTicker();
-      });
-      setInterval(updateTicker, 60000);
-      connectLiquidationWebSocket();
-    });
 
     function updateStatsPanel() {
       const total = longTotal + shortTotal;
       const longPercent = total > 0 ? ((longTotal / total) * 100).toFixed(1) : 0;
       const shortPercent = total > 0 ? ((shortTotal / total) * 100).toFixed(1) : 0;
       const ratio = shortTotal > 0 ? (longTotal / shortTotal).toFixed(2) : 0;
-      const avgLiquidation = liquidations.length > 0
-        ? ((longTotal + shortTotal) / liquidations.length).toFixed(0)
-        : 0;
+      const avgLiquidation = liquidations.length > 0 ? ((longTotal + shortTotal) / liquidations.length).toFixed(0) : 0;
 
-      document.getElementById('long-liquidated').textContent =
-        `$${(longTotal / 1000).toFixed(1)}k (${longPercent}%)`;
-
-      document.getElementById('short-liquidated').textContent =
-        `$${(shortTotal / 1000).toFixed(1)}k (${shortPercent}%)`;
-
+      document.getElementById('long-liquidated').textContent = `$${(longTotal / 1000).toFixed(1)}k (${longPercent}%)`;
+      document.getElementById('short-liquidated').textContent = `$${(shortTotal / 1000).toFixed(1)}k (${shortPercent}%)`;
       document.getElementById('ratio-ls').textContent = ratio;
-
-      document.getElementById('avg-liquidation').textContent =
-        `$${Number(avgLiquidation).toLocaleString()}`;
-
-      document.getElementById('largest-liquidation').textContent =
-        largestLiquidation.amount > 0
-          ? `$${(largestLiquidation.amount / 1000).toFixed(1)}k ${largestLiquidation.symbol} ${largestLiquidation.side}`
-          : '-';
+      document.getElementById('avg-liquidation').textContent = `$${Number(avgLiquidation).toLocaleString()}`;
+      
+      const largestText = largestLiquidation.amount > 0 
+        ? `$${(largestLiquidation.amount / 1000).toFixed(1)}k ${largestLiquidation.symbol}` 
+        : '-';
+      
+      const largestElement = document.getElementById('largest-liquidation');
+      largestElement.textContent = largestText;
+      largestElement.className = `stats-value highlight ${largestLiquidation.side === 'SELL' ? 'long-color' : 'short-color'}`;
 
       document.getElementById('total-count').textContent = liquidations.length;
+      
+      // Mostrar umbral dinámico
+      const average = calculateAverageLiquidation();
+      const threshold = average * 1.5;
+      const thresholdElement = document.getElementById('huge-threshold');
+      if (thresholdElement) {
+        thresholdElement.textContent = liquidationValues.length >= 10 
+          ? `$${(threshold / 1000).toFixed(1)}k` 
+          : `$50k (calibrando...)`;
+      }
+      
+      // Actualizar barra del ratio
+      const ratioBar = document.getElementById('ratio-bar');
+      if (ratioBar) {
+        const ratioPercent = longTotal / (longTotal + shortTotal || 1) * 100;
+        ratioBar.style.width = ratioPercent + '%';
+      }
     }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      updateTicker().then(() => startTicker());
+      setInterval(updateTicker, 60000);
+      connectLiquidationWebSocket();
+    });
   </script>
 </body>
 </html>
