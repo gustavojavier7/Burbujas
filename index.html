@@ -309,6 +309,8 @@
     const SPOT_TICKER_URL = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT";
     const FUTURES_TICKER_URL = "https://fapi.binance.com/fapi/v1/ticker/price?symbol=BTCUSDT";
     const INDEX_PRICE_URL = "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT";
+    const CORS_PROXY_URL = "https://corsproxy.io/?";
+    const ALT_CORS_PROXY_URL = "https://api.allorigins.win/raw?url=";
     const MAX_LIQUIDATIONS = 50;
     const MAX_LIQUIDATIONS_MEMORY = 100;
     const TICKER_ANIMATION_DURATION = 40000; // 40 segundos (fallback)
@@ -379,19 +381,41 @@
       return Number.isFinite(value) ? value * 1000 : TICKER_ANIMATION_DURATION;
     }
 
+    function buildProxyUrl(proxyBase, url) {
+      return `${proxyBase}${encodeURIComponent(url)}`;
+    }
+
+    async function fetchJsonWithFallback(url) {
+      const endpoints = [
+        url,
+        buildProxyUrl(CORS_PROXY_URL, url),
+        buildProxyUrl(ALT_CORS_PROXY_URL, url)
+      ];
+      let lastError;
+
+      for (const endpoint of endpoints) {
+        try {
+          const response = await fetch(endpoint);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status} for ${endpoint}`);
+          }
+          return await response.json();
+        } catch (error) {
+          lastError = error;
+        }
+      }
+
+      throw lastError;
+    }
+
     async function fetchTickerData() {
       try {
-        const [tickerResponse, spotResponse, futuresResponse, indexResponse] = await Promise.all([
-          fetch(TICKER_24HR_URL),
-          fetch(SPOT_TICKER_URL),
-          fetch(FUTURES_TICKER_URL),
-          fetch(INDEX_PRICE_URL)
+        const [tickerData, spotData, futuresData, indexData] = await Promise.all([
+          fetchJsonWithFallback(TICKER_24HR_URL),
+          fetchJsonWithFallback(SPOT_TICKER_URL),
+          fetchJsonWithFallback(FUTURES_TICKER_URL),
+          fetchJsonWithFallback(INDEX_PRICE_URL)
         ]);
-
-        const tickerData = await tickerResponse.json();
-        const spotData = await spotResponse.json();
-        const futuresData = await futuresResponse.json();
-        const indexData = await indexResponse.json();
         ticker24HrData = tickerData;
 
         const snapshot = buildTickerSnapshot(
