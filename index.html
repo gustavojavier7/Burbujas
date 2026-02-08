@@ -92,6 +92,15 @@
       display: none;
       pointer-events: none;
     }
+
+    .time-ring {
+      pointer-events: none;
+      filter: drop-shadow(0 0 3px rgba(255,255,255,0.5));
+    }
+
+    circle, text {
+      transition: opacity 0.5s ease-out;
+    }
   </style>
 </head>
 <body>
@@ -116,17 +125,24 @@
   <script>
     // --- CONFIGURACIÓN ---
     const WS_URL = 'wss://fstream.binance.com/ws/!forceOrder@arr';
-    const DECAY_RATE = 0.995; // Qué tan rápido se encogen las burbujas (0.99 = lento, 0.90 = rápido)
-    const MIN_RADIUS = 0;     // Radio mínimo para desaparecer
     const SCALE_FACTOR = 0.05; // Ajuste visual del tamaño basado en USD
 
+    // --- CONFIGURACIÓN TEMPORAL ---
+    const TIME_WINDOW = 5 * 60 * 1000; // 5 minutos en milisegundos
+    const DECAY_INTERVAL = 1000; // Actualizar cada 1 segundo
+    const CASCADE_WINDOW = 10000; // 10 segundos para cascadas
+    const MASS_THRESHOLD = 100000; // Umbral para marcar burbuja como masiva
+    const CASCADE_THRESHOLD = MASS_THRESHOLD * 3;
+
     // --- ESTADO DE DATOS ---
-    // Estructura: { 'BTCUSDT': { value: 50000, side: 'SELL', radius: 50, ... } }
+    // Estructura: { 'BTCUSDT': { liquidations: [{timestamp, amount, side}], value, radius, ... } }
     let dataMap = {}; 
     let nodes = [];
     let simulation;
     let svg, g;
     let width, height;
+    let recentLiquidations = [];
+    let lastCascadeTimestamp = 0;
 
     // --- INICIALIZACIÓN D3 ---
     function initChart() {
@@ -160,8 +176,8 @@
         simulation.alpha(1).restart();
       });
 
-      // Bucle de animación para el decaimiento (Efecto "Memoria")
-      setInterval(decayBubbles, 100); 
+      // Limpieza periódica por ventana temporal
+      setInterval(cleanExpiredLiquidations, DECAY_INTERVAL);
     }
 
     // --- FUNCIÓN DE DIBUJADO (TICK) ---
@@ -171,7 +187,12 @@
         .data(nodes, d => d.id);
 
       // EXIT: Remover burbujas viejas
-      u.exit().transition().duration(500).attr("r", 0).remove();
+      u.exit()
+        .transition()
+        .duration(800)
+        .style("opacity", 0)
+        .attr("r", 0)
+        .remove();
 
       // ENTER: Crear nuevas burbujas
       const enter = u.enter().append("g")
@@ -180,17 +201,21 @@
       enter.append("circle")
         .attr("r", 0) // Empiezan en 0 y crecen
         .attr("fill", d => d.color)
+        .style("opacity", d => d.opacity || 1)
+        .classed("massive", d => d.isMassive)
         .transition().duration(300)
         .attr("r", d => d.radius);
 
       enter.append("text")
         .attr("class", "bubble-label")
         .attr("dy", "-0.2em")
+        .style("opacity", d => d.opacity || 1)
         .text(d => d.id.replace("USDT", ""));
 
       enter.append("text")
         .attr("class", "bubble-value")
         .attr("dy", "1em")
+        .style("opacity", d => d.opacity || 1)
         .text(d => formatMoney(d.value));
 
       // UPDATE: Actualizar posiciones y tamaños existentes
@@ -200,10 +225,47 @@
       
       merged.select("circle")
         .attr("r", d => d.radius)
-        .attr("fill", d => d.color); // Actualizar color si cambia la tendencia
+        .attr("fill", d => d.color)
+        .style("opacity", d => d.opacity || 1)
+        .classed("massive", d => d.isMassive); // Actualizar color si cambia la tendencia
         
       merged.select(".bubble-value")
         .text(d => formatMoney(d.value));
+
+      // Actualizar opacidad de textos
+      merged.selectAll("text")
+        .style("opacity", d => d.opacity || 1);
+
+      // Agregar indicador de tiempo a burbujas masivas
+      const massiveNodes = merged.filter(d => d.isMassive);
+
+      massiveNodes.each(function(d) {
+        const node = d3.select(this);
+
+        // Eliminar anillo anterior si existe
+        node.select(".time-ring").remove();
+
+        if (d.liquidations && d.liquidations.length > 0) {
+          const now = Date.now();
+          const oldestLiq = Math.min(...d.liquidations.map(l => l.timestamp));
+          const age = now - oldestLiq;
+          const ageRatio = Math.min(age / TIME_WINDOW, 1);
+
+          const arc = d3.arc()
+            .innerRadius(d.radius + 3)
+            .outerRadius(d.radius + 6)
+            .startAngle(0)
+            .endAngle((1 - ageRatio) * 2 * Math.PI);
+
+          node.insert("path", "circle")
+            .attr("class", "time-ring")
+            .attr("d", arc)
+            .attr("fill", "none")
+            .attr("stroke", "#fff")
+            .attr("stroke-width", 2)
+            .style("opacity", 0.6);
+        }
+      });
     }
 
     // --- LÓGICA DE WEBSOCKET ---
@@ -242,32 +304,54 @@
       // Si la orden de liquidación es BUY, es porque el usuario tenía un SHORT y el precio subió. (Verde)
       const color = side === 'SELL' ? '#ff4d4d' : '#2ecc71'; 
 
+      const now = Date.now();
+
       if (!dataMap[symbol]) {
-        // Nueva burbuja
+        const spawnPos = findEmptySpawnPosition();
+
         dataMap[symbol] = {
           id: symbol,
+          liquidations: [],
           value: 0,
           radius: 0,
           color: color,
-          x: 0, 
-          y: 0,
-          vx: 0, 
-          vy: 0
+          x: spawnPos.x,
+          y: spawnPos.y,
+          vx: 0,
+          vy: 0,
+          isMassive: false,
+          birthTime: now
         };
         nodes.push(dataMap[symbol]);
       }
 
-      // Acumular valor (para que la burbuja crezca con liquidaciones consecutivas)
-      dataMap[symbol].value += amountUSD;
-      // Actualizar color (gana la liquidación más reciente)
-      dataMap[symbol].color = color;
-      
-      // Recalcular radio basado en la raíz cuadrada del valor (para área proporcional)
-      updateRadius(dataMap[symbol]);
+      const data = dataMap[symbol];
 
-      // "Calentar" la simulación para que se muevan
+      data.liquidations.push({
+        timestamp: now,
+        amount: amountUSD,
+        side: side
+      });
+
+      const cutoffTime = now - TIME_WINDOW;
+      const validLiquidations = data.liquidations.filter(
+        liq => liq.timestamp > cutoffTime
+      );
+
+      data.liquidations = validLiquidations;
+      data.value = validLiquidations.reduce((sum, liq) => sum + liq.amount, 0);
+      data.color = color;
+
+      updateRadius(dataMap[symbol]);
+      dataMap[symbol].isMassive = data.value > MASS_THRESHOLD;
+
+      const cascade = detectCascade(side, symbol, amountUSD);
+      if (cascade.active) {
+        triggerCascadeAlert(cascade);
+      }
+
       simulation.nodes(nodes);
-      simulation.alpha(0.3).restart();
+      simulation.alpha(0.5).restart();
     }
 
     function updateRadius(node) {
@@ -278,31 +362,183 @@
       // Limitar tamaño máximo para que no ocupe toda la pantalla
       if (node.radius > 150) node.radius = 150;
       if (node.radius < 15) node.radius = 15; // Tamaño mínimo legible
+
+      if (node.liquidations && node.liquidations.length > 0) {
+        const now = Date.now();
+        const avgAge = node.liquidations.reduce((sum, liq) =>
+          sum + (now - liq.timestamp), 0) / node.liquidations.length;
+
+        const ageRatio = avgAge / TIME_WINDOW;
+        node.opacity = 1 - (ageRatio * 0.4);
+      } else {
+        node.opacity = 1;
+      }
     }
 
-    // --- EFECTO DE DECAIMIENTO (Memory Fade) ---
-    function decayBubbles() {
-      let needsUpdate = false;
-      
-      // Filtramos nodos que se han vuelto muy pequeños
-      for (let i = nodes.length - 1; i >= 0; i--) {
-        const node = nodes[i];
-        
-        // Reducir el valor acumulado un X% cada ciclo
-        node.value *= DECAY_RATE;
-        updateRadius(node);
+    function cleanExpiredLiquidations() {
+      const now = Date.now();
+      const cutoffTime = now - TIME_WINDOW;
+      let hadChanges = false;
 
-        // Si el valor es muy bajo, eliminar del array
-        if (node.value < 1000) { // Umbral de $1000 USD
-           delete dataMap[node.id];
-           nodes.splice(i, 1);
-           needsUpdate = true;
+      nodes.forEach(node => {
+        const symbol = node.id;
+        const data = dataMap[symbol];
+
+        if (!data || !data.liquidations) return;
+
+        const oldValue = data.value;
+
+        const validLiquidations = data.liquidations.filter(
+          liq => liq.timestamp > cutoffTime
+        );
+
+        if (validLiquidations.length === 0) {
+          node._markedForDeletion = true;
+          hadChanges = true;
+          return;
+        }
+
+        data.liquidations = validLiquidations;
+        const newValue = validLiquidations.reduce((sum, liq) => sum + liq.amount, 0);
+
+        if (newValue !== oldValue) {
+          data.value = newValue;
+        }
+
+        updateRadius(node);
+        hadChanges = true;
+
+        const wasMassive = node.isMassive;
+        node.isMassive = newValue > MASS_THRESHOLD;
+
+        if (wasMassive !== node.isMassive) {
+          hadChanges = true;
+        }
+      });
+
+      nodes = nodes.filter(node => {
+        if (node._markedForDeletion) {
+          delete dataMap[node.id];
+          return false;
+        }
+        return true;
+      });
+
+      if (hadChanges) {
+        simulation.nodes(nodes);
+        simulation.alpha(0.3).restart();
+      }
+    }
+
+    function findEmptySpawnPosition() {
+      const maxAttempts = 20;
+      const spawnRadius = Math.min(width, height) * 0.3;
+
+      for (let i = 0; i < maxAttempts; i++) {
+        const x = (Math.random() - 0.5) * spawnRadius * 2;
+        const y = (Math.random() - 0.5) * spawnRadius * 2;
+        const safe = nodes.every(node => {
+          const dx = node.x - x;
+          const dy = node.y - y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          return dist > node.radius + 40;
+        });
+        if (safe) {
+          return { x, y };
         }
       }
 
-      // Si hubo cambios o simplemente para animar la reducción de tamaño:
-      simulation.nodes(nodes);
-      simulation.alpha(0.05).restart(); // Movimiento ligero
+      return {
+        x: (Math.random() - 0.5) * width * 0.2,
+        y: (Math.random() - 0.5) * height * 0.2
+      };
+    }
+
+    function detectCascade(side, symbol, amount) {
+      const now = Date.now();
+      recentLiquidations.push({ timestamp: now, side, symbol, amount });
+      recentLiquidations = recentLiquidations.filter(
+        liq => liq.timestamp > now - CASCADE_WINDOW
+      );
+
+      const sideVolume = recentLiquidations
+        .filter(liq => liq.side === side)
+        .reduce((sum, liq) => sum + liq.amount, 0);
+
+      return {
+        active: sideVolume >= CASCADE_THRESHOLD,
+        side,
+        volume: sideVolume
+      };
+    }
+
+    function triggerCascadeAlert(cascade) {
+      const status = document.getElementById('cascade-status');
+      if (!status) return;
+
+      const label = cascade.side === 'SELL' ? 'Venta forzada' : 'Compra forzada';
+      status.style.color = cascade.side === 'SELL' ? '#ff4d4d' : '#2ecc71';
+      status.textContent = `⚡ Cascada ${label}: ${formatMoney(cascade.volume)}`;
+      lastCascadeTimestamp = Date.now();
+    }
+
+    function createTimeWindowPanel() {
+      const panel = document.createElement('div');
+      panel.id = 'time-panel';
+      panel.style.cssText = `
+        position: absolute;
+        top: 70px;
+        left: 20px;
+        background: rgba(0, 0, 0, 0.85);
+        border: 1px solid #444;
+        border-radius: 8px;
+        padding: 15px;
+        font-size: 12px;
+        color: #aaa;
+        min-width: 200px;
+      `;
+
+      panel.innerHTML = `
+        <div style="font-weight: bold; margin-bottom: 8px; color: #fff;">
+          📊 Ventana Temporal: 5 min
+        </div>
+        <div id="active-symbols">Símbolos activos: <span style="color: #4CAF50;">0</span></div>
+        <div id="total-volume">Volumen total: <span style="color: #2196F3;">$0</span></div>
+        <div id="massive-count">Atractores: <span style="color: #ff9800;">0</span></div>
+        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333;">
+          <div id="cascade-status" style="color: #666;">Sin cascadas</div>
+        </div>
+      `;
+
+      document.body.appendChild(panel);
+
+      setInterval(updateTimePanel, 1000);
+    }
+
+    function updateTimePanel() {
+      const totalVolume = nodes.reduce((sum, n) => sum + n.value, 0);
+      const massiveCount = nodes.filter(n => n.isMassive).length;
+
+      const activeSymbols = document.getElementById('active-symbols');
+      const totalVolumeEl = document.getElementById('total-volume');
+      const massiveCountEl = document.getElementById('massive-count');
+
+      if (!activeSymbols || !totalVolumeEl || !massiveCountEl) return;
+
+      activeSymbols.innerHTML =
+        `Símbolos activos: <span style="color: #4CAF50;">${nodes.length}</span>`;
+
+      totalVolumeEl.innerHTML =
+        `Volumen total: <span style="color: #2196F3;">${formatMoney(totalVolume)}</span>`;
+
+      massiveCountEl.innerHTML =
+        `Atractores: <span style="color: #ff9800;">${massiveCount}</span>`;
+
+      const cascadeStatus = document.getElementById('cascade-status');
+      if (cascadeStatus && Date.now() - lastCascadeTimestamp > CASCADE_WINDOW) {
+        cascadeStatus.style.color = '#666';
+        cascadeStatus.textContent = 'Sin cascadas';
+      }
     }
 
     // --- UTILIDADES ---
@@ -315,6 +551,7 @@
     // --- ARRANQUE ---
     document.addEventListener('DOMContentLoaded', () => {
       initChart();
+      createTimeWindowPanel();
       connectWebSocket();
     });
 
