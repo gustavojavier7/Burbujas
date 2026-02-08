@@ -346,25 +346,22 @@
       return false;
     }
 
-    function startTicker() {
-  let animationFrame;
-  
+  function startTicker() {
   function scrollTicker() {
     tickerPosition -= tickerSpeed;
     
-    // Calcular el ancho de un set completo
-    const totalWidth = tickerContent.scrollWidth;
-    const singleSetWidth = totalWidth / 2;
+    // Calcular el ancho de UN solo set (la mitad del contenido total)
+    const singleSetWidth = tickerContent.scrollWidth / 2;
     
-    // Cuando pasamos completamente el primer set, volver al inicio sin salto
+    // Cuando hemos scrolleado exactamente un set completo, 
+    // resetear SUMANDO en lugar de establecer a 0
     if (Math.abs(tickerPosition) >= singleSetWidth) {
       tickerPosition = tickerPosition + singleSetWidth;
     }
     
     tickerContent.style.transform = `translateX(${tickerPosition}px)`;
-    animationFrame = requestAnimationFrame(scrollTicker);
+    requestAnimationFrame(scrollTicker);
   }
-  
   scrollTicker();
 }
 
