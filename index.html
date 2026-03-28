@@ -325,6 +325,7 @@
     let liquidationValues = [];
     let latestTop3Snapshot = [];
     let tickerTop3Snapshot = [];
+    let isTickerVisible = true;
     let ticker24HrData = [];
     const tickerState = {
       items: [],
@@ -476,36 +477,48 @@
       });
     }
 
+    function initTickerObserver() {
+  const observer = new IntersectionObserver((entries) => {
+    isTickerVisible = entries[0].isIntersecting;
+  }, { threshold: 0.1 });
+  observer.observe(tickerContent);
+}
     function runTickerAnimation(timestamp) {
-      if (!tickerState.lastFrameTime) {
-        tickerState.lastFrameTime = timestamp;
-      }
-      const deltaSeconds = (timestamp - tickerState.lastFrameTime) / 1000;
-      tickerState.lastFrameTime = timestamp;
-      const distance = tickerState.speedPxPerSec * deltaSeconds;
+  if (!isTickerVisible) {
+    tickerState.lastFrameTime = timestamp;
+    requestAnimationFrame(runTickerAnimation);
+    return;
+  }
+  
+  if (!tickerState.lastFrameTime) {
+    tickerState.lastFrameTime = timestamp;
+  }
+  const deltaSeconds = (timestamp - tickerState.lastFrameTime) / 1000;
+  tickerState.lastFrameTime = timestamp;
+  const distance = tickerState.speedPxPerSec * deltaSeconds;
 
-      tickerState.items.forEach(item => {
-        item.x -= distance;
-        item.el.style.transform = `translateX(${item.x}px)`;
-      });
+  tickerState.items.forEach(item => {
+    item.x -= distance;
+    item.el.style.transform = `translateX(${item.x}px)`;
+  });
 
-      while (
-        tickerState.items.length > 0 &&
-        tickerState.items[0].x + tickerState.items[0].width < -TICKER_ITEM_GAP
-      ) {
-        const removed = tickerState.items.shift();
-        removed.el.remove();
-      }
+  while (
+    tickerState.items.length > 0 &&
+    tickerState.items[0].x + tickerState.items[0].width < -TICKER_ITEM_GAP
+  ) {
+    const removed = tickerState.items.shift();
+    removed.el.remove();
+  }
 
-      const lastItem = tickerState.items[tickerState.items.length - 1];
-      const canAdd = !lastItem
-        || lastItem.x + lastItem.width + TICKER_ITEM_GAP < tickerState.containerWidth + TICKER_ITEM_GAP;
-      if (tickerState.pendingQueue.length > 0 && canAdd) {
-        addNextTickerItem();
-      }
+  const lastItem = tickerState.items[tickerState.items.length - 1];
+  const canAdd = !lastItem
+    || lastItem.x + lastItem.width + TICKER_ITEM_GAP < tickerState.containerWidth + TICKER_ITEM_GAP;
+  if (tickerState.pendingQueue.length > 0 && canAdd) {
+    addNextTickerItem();
+  }
 
-      requestAnimationFrame(runTickerAnimation);
-    }
+  requestAnimationFrame(runTickerAnimation);
+}
 
     function initializeTicker() {
       tickerContent.innerHTML = '';
@@ -523,6 +536,7 @@
       ]);
       addNextTickerItem();
       requestAnimationFrame(runTickerAnimation);
+      initTickerObserver();
     }
 
     function buildTickerSnapshot(tickerData, top3Snapshot = []) {
