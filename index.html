@@ -120,14 +120,14 @@
       width: 12px;
       height: 12px;
       border-radius: 50%;
-      background: var(--led-off);
-      box-shadow: 0 0 8px var(--led-off);
-      transition: all 0.15s ease;
+      background: #000;
+      box-shadow: none;
+      /* Sin transición: estricto y abrupto */
     }
     .ws-led.active {
       background: var(--led-on);
       box-shadow: 0 0 12px var(--led-on), 0 0 20px var(--led-on);
-      animation: led-pulse 0.6s ease-in-out;
+      transition: none;
     }
     .ws-led.reconnecting {
       background: var(--led-reconnect);
@@ -137,11 +137,6 @@
     .ws-led.disconnected {
       background: var(--led-disconnected);
       box-shadow: 0 0 8px var(--led-disconnected);
-    }
-    @keyframes led-pulse {
-      0% { transform: scale(1); }
-      50% { transform: scale(1.25); }
-      100% { transform: scale(1); }
     }
     @keyframes led-reconnect {
       from { opacity: 0.6; }
@@ -353,7 +348,8 @@
 
     function calculateAverageLiquidation() {
       if (liquidationValues.length === 0) return 0;
-      return liquidationValues.reduce((acc, val) => acc + val, 0) / liquidationValues.length;
+      const sum = liquidationValues.reduce((acc, val) => acc + val, 0);
+      return sum / liquidationValues.length;
     }
 
     function isHugeLiquidation(value) {
@@ -572,20 +568,26 @@
       if (!led || !statusText) return;
 
       if (isActivity) {
-        // Flash estilo HDD: fuerte y breve
+        // Flash CAÓTICO: Reset y disparo instantáneo
+        led.classList.remove('active', 'reconnecting', 'disconnected');
+        void led.offsetWidth; // Force reflow
         led.classList.add('active');
         setTimeout(() => {
           led.classList.remove('active');
-        }, 120);   // flash más corto y nítido
+        }, 50); // Flash ultra corto
         return;
       }
 
-      // Estados de conexión (solo afectan el texto y un leve color base)
       led.classList.remove('active', 'reconnecting', 'disconnected');
 
-      if (status === 'connected') {
-        led.style.background = 'var(--led-off)';        // tenue cuando idle
-        led.style.boxShadow = '0 0 4px var(--led-off)';
+      if (status === 'connecting') {
+        led.style.background = '#000';
+        led.style.boxShadow = 'none';
+        statusText.textContent = 'Connecting...';
+        statusText.style.color = 'var(--text-muted)';
+      } else if (status === 'connected') {
+        led.style.background = '#000'; // Negro puro en idle
+        led.style.boxShadow = 'none';
         statusText.textContent = 'Connected';
         statusText.style.color = 'var(--led-on)';
       } else if (status === 'reconnecting') {
@@ -666,12 +668,10 @@
       if (liquidationContent.children.length > MAX_LIQUIDATIONS) {
         liquidationContent.removeChild(liquidationContent.lastChild);
       }
-
-      updateWSLED(null, true);
     }
 
     function connectLiquidationWebSocket() {
-      updateWSLED('reconnecting');
+      updateWSLED('connecting');
       const ws = new WebSocket('wss://fstream.binance.com/ws/!forceOrder@arr');
       
       ws.onopen = () => {
@@ -683,6 +683,9 @@
         const data = JSON.parse(event.data);
         const liquidation = data.o;
         if (liquidation) {
+          // Flash del LED (Caótico: ocurre para cada mensaje sin throttling)
+          updateWSLED(null, true);
+
           const price = parseFloat(liquidation.p);
           const quantity = parseFloat(liquidation.q);
           if (isNaN(price) || isNaN(quantity)) return;
@@ -798,6 +801,7 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       tickerContent = document.getElementById("ticker");
+      updateWSLED('connecting');
       initializeTicker();
       fetchTickerData();
       setInterval(fetchTickerData, 60000);
