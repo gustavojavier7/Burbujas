@@ -18,10 +18,12 @@
       --color-short: #ef4444;
       --color-accent: #eab308;
       --ticker-duration: 60s;
+      --led-on: #22c55e;
+      --led-off: #166534;
+      --led-reconnect: #eab308;
+      --led-disconnected: #ef4444;
     }
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
     body {
       font-family: 'Inter', sans-serif;
       background-color: var(--bg-color);
@@ -33,6 +35,7 @@
       align-items: center;
       min-height: 100vh;
     }
+
     /* --- TICKER --- */
     .ticker-container {
       width: 100%;
@@ -65,7 +68,8 @@
     }
     .ticker-item:last-child { border-right: none; }
     .ticker-item span { margin-right: 8px; }
-    /* --- LAYOUT PRINCIPAL --- */
+
+    /* --- LAYOUT --- */
     .dashboard-grid {
       display: grid;
       grid-template-columns: 1fr;
@@ -75,11 +79,9 @@
       margin-bottom: 40px;
     }
     @media (min-width: 850px) {
-      .dashboard-grid {
-        grid-template-columns: 1.5fr 1fr;
-      }
+      .dashboard-grid { grid-template-columns: 1.5fr 1fr; }
     }
-    /* --- TARJETAS GLOBALES --- */
+
     .card {
       background-color: var(--card-bg);
       border-radius: 12px;
@@ -100,12 +102,54 @@
       border-bottom: 1px solid var(--border-color);
       text-transform: uppercase;
       letter-spacing: 1px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
+
+    /* --- LED --- */
+    .ws-led-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85em;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    .ws-led {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--led-off);
+      box-shadow: 0 0 8px var(--led-off);
+      transition: all 0.15s ease;
+    }
+    .ws-led.active {
+      background: var(--led-on);
+      box-shadow: 0 0 12px var(--led-on), 0 0 20px var(--led-on);
+      animation: led-pulse 0.6s ease-in-out;
+    }
+    .ws-led.reconnecting {
+      background: var(--led-reconnect);
+      box-shadow: 0 0 10px var(--led-reconnect);
+      animation: led-reconnect 1.2s infinite alternate;
+    }
+    .ws-led.disconnected {
+      background: var(--led-disconnected);
+      box-shadow: 0 0 8px var(--led-disconnected);
+    }
+    @keyframes led-pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.25); }
+      100% { transform: scale(1); }
+    }
+    @keyframes led-reconnect {
+      from { opacity: 0.6; }
+      to { opacity: 1; }
+    }
+
     /* --- CAJA DE LIQUIDACIONES --- */
-    .liquidation-box {
-      height: 450px;
-      position: relative;
-    }
+    .liquidation-box { height: 450px; position: relative; }
     .liquidation-header {
       display: flex;
       justify-content: space-between;
@@ -149,10 +193,7 @@
       border-left: 3px solid var(--color-accent);
       padding-left: 8px;
     }
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
-    ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
     /* --- ESTADÍSTICAS --- */
     .stats-row {
       display: flex;
@@ -166,6 +207,7 @@
     .stats-row:last-child { border-bottom: none; }
     .stats-label { color: var(--text-muted); }
     .stats-value { font-weight: bold; text-align: right; }
+
     /* --- TOP 3 MONEDAS --- */
     .top-item {
       display: flex;
@@ -185,22 +227,17 @@
       flex-direction: column;
       gap: 2px;
     }
-    .top-item .top-symbol {
-      font-weight: bold;
-      font-size: 1em;
-      color: var(--text-main);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .top-item .top-detail {
-      color: var(--text-muted);
-      font-size: 0.8em;
-      white-space: nowrap;
-    }
+    .top-item .top-symbol { font-weight: bold; font-size: 1em; }
+    .top-item .top-detail { color: var(--text-muted); font-size: 0.8em; }
+
     .long-color { color: var(--color-long) !important; }
     .short-color { color: var(--color-short) !important; }
     .highlight { color: var(--color-accent) !important; font-size: 1.05em; }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: #64748b; }
   </style>
 </head>
 <body>
@@ -210,10 +247,17 @@
       Cargando datos del mercado...
     </div>
   </div>
+
   <div class="dashboard-grid">
     <!-- CAJA DE LIQUIDACIONES -->
     <div class="card liquidation-box">
-      <div class="card-title">🔴 Liquidaciones en Vivo (Futuros)</div>
+      <div class="card-title">
+        <span>🔴 Liquidaciones en Vivo (Futuros)</span>
+        <div class="ws-led-container">
+          <div id="ws-led" class="ws-led"></div>
+          <span id="ws-status">Conectando...</span>
+        </div>
+      </div>
       <div class="liquidation-header">
         <span>Símbolo</span>
         <span>Precio</span>
@@ -223,6 +267,7 @@
         <!-- JS inyecta aquí -->
       </div>
     </div>
+
     <!-- COLUMNA DERECHA -->
     <div style="display: flex; flex-direction: column; gap: 25px;">
       <!-- ESTADÍSTICAS -->
@@ -262,6 +307,7 @@
           <span class="stats-value" id="total-count">0</span>
         </div>
       </div>
+
       <!-- TOP 3 -->
       <div class="card" id="top-liquidated-container">
         <div class="card-title">🔥 Top 3 Más Liquidadas</div>
@@ -284,7 +330,7 @@
     const TICKER_ANIMATION_DURATION = 40000;
     const TICKER_ITEM_GAP = 40;
 
-    let tickerContent = document.getElementById("ticker");
+    let tickerContent;
     let liquidations = [];
     let liquidationFrequency = {};
     let longTotal = 0;
@@ -295,9 +341,8 @@
     let tickerTop3Snapshot = [];
     let isTickerVisible = true;
     let ticker24HrData = [];
-    
-    // Nueva variable para RAF Throttling
     let updatePending = false;
+    let wsConnected = false;
 
     const tickerState = {
       items: [],
@@ -309,27 +354,21 @@
 
     function calculateAverageLiquidation() {
       if (liquidationValues.length === 0) return 0;
-      const sum = liquidationValues.reduce((acc, val) => acc + val, 0);
-      return sum / liquidationValues.length;
+      return liquidationValues.reduce((acc, val) => acc + val, 0) / liquidationValues.length;
     }
 
     function isHugeLiquidation(value) {
       const average = calculateAverageLiquidation();
-      if (liquidationValues.length < 10) {
-        return value > 50000;
-      }
+      if (liquidationValues.length < 10) return value > 50000;
       return value > (average * 1.5);
     }
 
     function hasTop3Changed() {
-      const currentTop3 = latestTop3Snapshot.join(',');
-      const previousTop3 = tickerTop3Snapshot.join(',');
-      return currentTop3 !== previousTop3;
+      return latestTop3Snapshot.join(',') !== tickerTop3Snapshot.join(',');
     }
 
     function getTickerDurationMs() {
-      const durationValue = getComputedStyle(document.documentElement)
-        .getPropertyValue('--ticker-duration').trim();
+      const durationValue = getComputedStyle(document.documentElement).getPropertyValue('--ticker-duration').trim();
       if (!durationValue) return TICKER_ANIMATION_DURATION;
       if (durationValue.endsWith('ms')) return parseFloat(durationValue) || TICKER_ANIMATION_DURATION;
       if (durationValue.endsWith('s')) return (parseFloat(durationValue) || 40) * 1000;
@@ -368,6 +407,7 @@
     }
 
     function updateTickerMetrics() {
+      if (!tickerContent) return;
       tickerState.containerWidth = tickerContent.getBoundingClientRect().width;
       const durationMs = getTickerDurationMs();
       tickerState.speedPxPerSec = tickerState.containerWidth / (durationMs / 1000);
@@ -384,7 +424,7 @@
       tickerTop3Snapshot = snapshot.filter(item => item.type === 'top3').map(item => item.symbol);
     }
 
-    function addNextTickerItem() { /* ... se mantiene igual que en tu código original ... */ 
+    function addNextTickerItem() {
       if (tickerState.pendingQueue.length === 0) return;
       const data = tickerState.pendingQueue.shift();
       const itemEl = createTickerItem(data.label, data.price, data.change, data.color);
@@ -507,7 +547,37 @@
       return tickerItem;
     }
 
-    // Nueva función para procesar actualizaciones con throttling
+    function updateWSLED(status, isActivity = false) {
+      const led = document.getElementById('ws-led');
+      const statusText = document.getElementById('ws-status');
+      if (!led || !statusText) return;
+
+      if (isActivity) {
+        led.classList.add('active');
+        setTimeout(() => led.classList.remove('active'), 180);
+        return;
+      }
+
+      led.classList.remove('active', 'reconnecting', 'disconnected');
+      if (status === 'connected') {
+        wsConnected = true;
+        led.style.background = 'var(--led-on)';
+        led.style.boxShadow = '0 0 12px var(--led-on)';
+        statusText.textContent = 'Connected';
+        statusText.style.color = 'var(--led-on)';
+      } else if (status === 'reconnecting') {
+        wsConnected = false;
+        led.classList.add('reconnecting');
+        statusText.textContent = 'Reconnecting...';
+        statusText.style.color = 'var(--led-reconnect)';
+      } else if (status === 'disconnected') {
+        wsConnected = false;
+        led.classList.add('disconnected');
+        statusText.textContent = 'Disconnected';
+        statusText.style.color = 'var(--led-disconnected)';
+      }
+    }
+
     function processLiquidationUpdate(liquidation) {
       const price = parseFloat(liquidation.p);
       const quantity = parseFloat(liquidation.q);
@@ -561,40 +631,37 @@
       item.className = 'liquidation-item';
       if (isHugeLiquidation(liqValue)) item.classList.add('huge');
 
-      const symbolSpan = document.createElement('span');
-      symbolSpan.textContent = liquidation.s;
-      const priceSpan = document.createElement('span');
-      priceSpan.textContent = `$${price.toFixed(2)}`;
-      const quantitySpan = document.createElement('span');
-      const totalValue = (liqValue / 1000).toFixed(1);
-      quantitySpan.textContent = `${quantity.toFixed(2)} ($${totalValue}k)`;
-
-      const liquidationColor = liquidation.S === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
-      item.style.color = liquidationColor;
-
-      item.appendChild(symbolSpan);
-      item.appendChild(priceSpan);
-      item.appendChild(quantitySpan);
+      const totalValueK = (liqValue / 1000).toFixed(1);
+      item.innerHTML = `
+        <span>${liquidation.s}</span>
+        <span>$${price.toFixed(2)}</span>
+        <span>${quantity.toFixed(2)} ($${totalValueK}k)</span>
+      `;
+      item.style.color = liquidation.S === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
 
       const liquidationContent = document.getElementById('liquidation-content');
       liquidationContent.prepend(item);
       if (liquidationContent.children.length > MAX_LIQUIDATIONS) {
         liquidationContent.removeChild(liquidationContent.lastChild);
       }
+
+      updateWSLED(null, true);
     }
 
     function connectLiquidationWebSocket() {
+      updateWSLED('reconnecting');
       const ws = new WebSocket('wss://fstream.binance.com/ws/!forceOrder@arr');
+      
+      ws.onopen = () => updateWSLED('connected');
+
       ws.onmessage = function(event) {
         const data = JSON.parse(event.data);
         const liquidation = data.o;
         if (liquidation) {
           const price = parseFloat(liquidation.p);
           const quantity = parseFloat(liquidation.q);
-          if (isNaN(price) || isNaN(quantity)) {
-            console.error("Valores inválidos:", liquidation);
-            return;
-          }
+          if (isNaN(price) || isNaN(quantity)) return;
+
           const newLiquidation = {
             symbol: liquidation.s,
             price: price,
@@ -605,7 +672,6 @@
           if (liquidations.length > MAX_LIQUIDATIONS_MEMORY) {
             liquidations.pop();
           }
-          // RAF Throttling
           if (!updatePending) {
             updatePending = true;
             requestAnimationFrame(() => {
@@ -615,11 +681,14 @@
           }
         }
       };
+
       ws.onclose = function() {
-        console.error("Conexión de WebSocket cerrada, reconectando en 1s...");
-        setTimeout(connectLiquidationWebSocket, 1000);
+        updateWSLED('reconnecting');
+        setTimeout(connectLiquidationWebSocket, 1500);
       };
+
       ws.onerror = function(error) {
+        updateWSLED('disconnected');
         console.error("Error en WebSocket:", error);
       };
     }
@@ -629,47 +698,30 @@
         .sort((a, b) => b[1].count - a[1].count)
         .slice(0, 3);
       latestTop3Snapshot = topLiquidated.map(([symbol]) => symbol);
-      if (hasTop3Changed()) {
-        fetchTickerData();
-        enqueueTickerSnapshot(buildTop3Snapshot(topLiquidated, ticker24HrData)); // Nota: buildTop3Snapshot no está definida en el original, se usa buildTickerSnapshot en su lugar
-      }
+      
       const topContent = document.getElementById('top-liquidated-content');
+      if (!topContent) return;
       topContent.innerHTML = '';
+      
       if (topLiquidated.length === 0) {
         topContent.innerHTML = '<span style="color: var(--text-muted); font-size: 0.9em;">Esperando datos...</span>';
         return;
       }
+
       topLiquidated.forEach(([symbol, data], index) => {
         const item = document.createElement('div');
         item.className = 'top-item';
-        const leftDiv = document.createElement('div');
-        leftDiv.style.flex = '1';
-        leftDiv.style.minWidth = '0';
-        const symbolSpan = document.createElement('span');
-        symbolSpan.className = 'top-symbol';
-        symbolSpan.textContent = `${index + 1}. ${symbol}`;
-        const countSpan = document.createElement('span');
-        countSpan.className = 'top-detail';
-        countSpan.textContent = `${data.count} liq.`;
-        leftDiv.appendChild(symbolSpan);
-        leftDiv.appendChild(countSpan);
-        const rightDiv = document.createElement('div');
-        rightDiv.style.alignItems = 'flex-end';
-        rightDiv.style.textAlign = 'right';
-        rightDiv.style.minWidth = 'fit-content';
         const averagePrice = (data.total / data.count).toFixed(2);
-        const avgPriceSpan = document.createElement('span');
-        avgPriceSpan.style.fontFamily = "'JetBrains Mono', monospace";
-        avgPriceSpan.style.fontSize = '0.95em';
-        avgPriceSpan.style.fontWeight = 'bold';
-        avgPriceSpan.textContent = `$${averagePrice}`;
-        const avgLabel = document.createElement('span');
-        avgLabel.className = 'top-detail';
-        avgLabel.textContent = 'prom.';
-        rightDiv.appendChild(avgPriceSpan);
-        rightDiv.appendChild(avgLabel);
-        item.appendChild(leftDiv);
-        item.appendChild(rightDiv);
+        item.innerHTML = `
+          <div style="flex: 1; min-width: 0;">
+            <span class="top-symbol">${index + 1}. ${symbol}</span>
+            <span class="top-detail">${data.count} liq.</span>
+          </div>
+          <div style="align-items: flex-end; text-align: right; min-width: fit-content;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.95em; font-weight: bold;">$${averagePrice}</span>
+            <span class="top-detail">prom.</span>
+          </div>
+        `;
         topContent.appendChild(item);
       });
     }
@@ -679,20 +731,20 @@
       const longPercent = total > 0 ? ((longTotal / total) * 100).toFixed(1) : 0;
       const shortPercent = total > 0 ? ((shortTotal / total) * 100).toFixed(1) : 0;
       const ratio = shortTotal > 0 ? (longTotal / shortTotal).toFixed(2) : '0.00';
-      const avgLiquidation = liquidations.length > 0 ? ((longTotal + shortTotal) / liquidations.length).toFixed(0) : 0;
+      const avgLiquidationValue = liquidations.length > 0 ? (total / liquidations.length).toFixed(0) : 0;
+      
       document.getElementById('long-liquidated').textContent = `$${(longTotal / 1000).toFixed(1)}k (${longPercent}%)`;
       document.getElementById('short-liquidated').textContent = `$${(shortTotal / 1000).toFixed(1)}k (${shortPercent}%)`;
       document.getElementById('ratio-ls').textContent = ratio;
-      document.getElementById('avg-liquidation').textContent = `$${Number(avgLiquidation).toLocaleString()}`;
+      document.getElementById('avg-liquidation').textContent = `$${Number(avgLiquidationValue).toLocaleString()}`;
+      
       const largestText = largestLiquidation.amount > 0 ? `$${(largestLiquidation.amount / 1000).toFixed(1)}k ${largestLiquidation.symbol}` : '-';
       const largestElement = document.getElementById('largest-liquidation');
       largestElement.textContent = largestText;
-      let classes = 'stats-value highlight';
-      if (largestLiquidation.amount > 0) {
-        classes += largestLiquidation.side === 'SELL' ? ' long-color' : ' short-color';
-      }
-      largestElement.className = classes;
+      largestElement.className = 'stats-value highlight' + (largestLiquidation.amount > 0 ? (largestLiquidation.side === 'SELL' ? ' long-color' : ' short-color') : '');
+      
       document.getElementById('total-count').textContent = liquidations.length;
+      
       const average = calculateAverageLiquidation();
       const threshold = average * 1.5;
       const thresholdElement = document.getElementById('huge-threshold');
@@ -703,6 +755,7 @@
           thresholdElement.textContent = '$50k (calibrando...)';
         }
       }
+      
       const ratioBar = document.getElementById('ratio-bar');
       if (ratioBar) {
         const ratioPercent = total > 0 ? (longTotal / total * 100) : 50;
@@ -710,28 +763,8 @@
       }
     }
 
-    // buildTop3Snapshot (función auxiliar usada en showTopLiquidatedCoins)
-    function buildTop3Snapshot(topLiquidated, ticker24Hr) {
-      const topItems = [];
-      topItems.push({ label: "🔥 TOP LIQ", price: undefined, change: undefined, color: "var(--color-accent)" });
-      if (topLiquidated.length === 0) {
-        topItems.push({ label: "Recolectando datos...", price: "", change: undefined, color: undefined });
-        return topItems;
-      }
-      topLiquidated.forEach(([symbol]) => {
-        const pairData = ticker24Hr.find(p => p.symbol === symbol);
-        if (pairData) {
-          const price = parseFloat(pairData.lastPrice).toFixed(2);
-          const change = parseFloat(pairData.priceChangePercent).toFixed(2);
-          const changeColor = change >= 0 ? 'var(--color-long)' : 'var(--color-short)';
-          const changeStr = change >= 0 ? `+${change}%` : `${change}%`;
-          topItems.push({ type: 'top3', symbol, label: symbol, price: `$${price}`, change: changeStr, color: changeColor });
-        }
-      });
-      return topItems;
-    }
-
     document.addEventListener('DOMContentLoaded', () => {
+      tickerContent = document.getElementById("ticker");
       initializeTicker();
       fetchTickerData();
       setInterval(fetchTickerData, 60000);
