@@ -332,8 +332,7 @@
     let shortTotal = 0;
     let largestLiquidation = { amount: 0, symbol: '', side: '' };
     let liquidationValues = [];
-    let latestTop3Snapshot = [];
-    let tickerTop3Snapshot = [];
+    let currentTop3 = []; // Única fuente de verdad
     let isTickerVisible = true;
     let ticker24HrData = [];
     let updatePending = false;
@@ -356,10 +355,6 @@
       const average = calculateAverageLiquidation();
       if (liquidationValues.length < 10) return value > 50000;
       return value > (average * 1.5);
-    }
-
-    function hasTop3Changed() {
-      return latestTop3Snapshot.join(',') !== tickerTop3Snapshot.join(',');
     }
 
     function getTickerDurationMs() {
@@ -394,7 +389,7 @@
           fetchJsonWithFallback(INDEX_PRICE_URL)
         ]);
         ticker24HrData = tickerData;
-        const snapshot = buildTickerSnapshot({ ticker24Hr: tickerData, spot: spotData, futures: futuresData, index: indexData }, latestTop3Snapshot);
+        const snapshot = buildTickerSnapshot({ ticker24Hr: tickerData, spot: spotData, futures: futuresData, index: indexData }, currentTop3);
         enqueueTickerSnapshot(snapshot);
       } catch (error) {
         console.error("Error al obtener los datos del ticker:", error);
@@ -416,7 +411,6 @@
       } else if (tickerState.pendingQueue.length < 5) {
         snapshot.forEach(item => tickerState.pendingQueue.push({ ...item }));
       }
-      tickerTop3Snapshot = snapshot.filter(item => item.type === 'top3').map(item => item.symbol);
     }
 
     function addNextTickerItem() {
@@ -499,19 +493,24 @@
       return topItems;
     }
 
-    function buildTickerSnapshot(tickerData, top3Snapshot = []) {
+    function buildTickerSnapshot(tickerData, top3Snapshot = currentTop3) {
       const { ticker24Hr, spot, futures, index } = tickerData;
       const snapshotItems = [];
       const prices = [
-        { label: 'SPOT BTC', price: parseFloat(spot.price).toFixed(2) },
-        { label: 'FUTURES BTC', price: parseFloat(futures.price).toFixed(2) },
-        { label: 'INDEX PRICE', price: parseFloat(index.markPrice).toFixed(2) }
+        { label: 'SPOT BTC', price: spot.price ? parseFloat(spot.price).toFixed(2) : '---' },
+        { label: 'FUTURES BTC', price: futures.price ? parseFloat(futures.price).toFixed(2) : '---' },
+        { label: 'INDEX PRICE', price: index.markPrice ? parseFloat(index.markPrice).toFixed(2) : '---' }
       ];
       prices.forEach(item => {
         snapshotItems.push({ label: item.label, price: `$${item.price}`, change: undefined, color: 'var(--text-main)' });
       });
-      const topLiquidated = top3Snapshot.length > 0 ? top3Snapshot : Object.keys(liquidationFrequency).sort((a, b) => liquidationFrequency[b].count - liquidationFrequency[a].count).slice(0, 3);
+
+      const topLiquidated = top3Snapshot.length > 0 
+        ? top3Snapshot.map(symbol => [symbol, liquidationFrequency[symbol] || {count:0, total:0}])
+        : [];
+
       snapshotItems.push({ label: "🔥 TOP LIQ", price: undefined, change: undefined, color: "var(--color-accent)" });
+      
       if (largestLiquidation.amount > 0) {
         const symbol = largestLiquidation.symbol;
         const pairData = ticker24Hr.find(data => data.symbol === symbol);
@@ -521,11 +520,13 @@
         const changeStr = change >= 0 ? `+${change}%` : `${change}%`;
         snapshotItems.push({ type: 'huge_liq', label: `${symbol} (Mayor Liq: $${(largestLiquidation.amount / 1000).toFixed(1)}k)`, price: `$${price}`, change: changeStr, color: changeColor });
       }
+
       if (topLiquidated.length === 0) {
         snapshotItems.push({ label: "Recolectando datos...", price: "", change: undefined, color: undefined });
         return snapshotItems;
       }
-      topLiquidated.forEach(symbol => {
+
+      topLiquidated.forEach(([symbol]) => {
         const pairData = ticker24Hr.find(data => data.symbol === symbol);
         if (pairData) {
           const price = parseFloat(pairData.lastPrice).toFixed(2);
@@ -633,11 +634,7 @@
       });
 
       updateStatsPanel();
-      showTopLiquidatedCoins();
-
-      if (hasTop3Changed()) {
-        fetchTickerData();
-      }
+      updateTop3(); // ← Cambiado: ahora usa la función central
 
       if (isHugeLiquidation(liqValue)) {
         const audio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-alert-quick-chime-766.mp3');
@@ -719,40 +716,44 @@
       };
     }
 
-    function showTopLiquidatedCoins() {
+    // === NUEVA LÓGICA CENTRALIZADA - SINGLE SOURCE OF TRUTH ===
+    function updateTop3() {
       const topLiquidated = Object.entries(liquidationFrequency)
         .sort((a, b) => b[1].count - a[1].count)
         .slice(0, 3);
-      latestTop3Snapshot = topLiquidated.map(([symbol]) => symbol);
-      
-      if (hasTop3Changed()) {
-        fetchTickerData();
-        // Sincronizar ticker con los nuevos datos del top 3
-        if (ticker24HrData.length > 0) {
-          enqueueTickerSnapshot(buildTop3Snapshot(topLiquidated, ticker24HrData));
-        }
+
+      currentTop3 = topLiquidated.map(([symbol]) => symbol);
+
+      renderTop3Visual(topLiquidated);
+
+      if (ticker24HrData.length > 0) {
+        const snapshot = buildTickerSnapshot({ 
+          ticker24Hr: ticker24HrData, 
+          spot: {}, futures: {}, index: {} 
+        }, currentTop3);
+        enqueueTickerSnapshot(snapshot);
       }
-      
+    }
+
+    function renderTop3Visual(topLiquidated) {
       const topContent = document.getElementById('top-liquidated-content');
       if (!topContent) return;
       topContent.innerHTML = '';
-      
       if (topLiquidated.length === 0) {
         topContent.innerHTML = '<span style="color: var(--text-muted); font-size: 0.9em;">Esperando datos...</span>';
         return;
       }
-
       topLiquidated.forEach(([symbol, data], index) => {
         const item = document.createElement('div');
         item.className = 'top-item';
-        const averagePrice = (data.total / data.count).toFixed(2);
+        const avgPrice = (data.total / data.count).toFixed(2);
         item.innerHTML = `
           <div style="flex: 1; min-width: 0;">
             <span class="top-symbol">${index + 1}. ${symbol}</span>
             <span class="top-detail">${data.count} liq.</span>
           </div>
           <div style="align-items: flex-end; text-align: right; min-width: fit-content;">
-            <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.95em; font-weight: bold;">$${averagePrice}</span>
+            <span style="font-family: \'JetBrains Mono\', monospace; font-size: 0.95em; font-weight: bold;">$${avgPrice}</span>
             <span class="top-detail">prom.</span>
           </div>
         `;
@@ -803,6 +804,7 @@
       initializeTicker();
       fetchTickerData();
       setInterval(fetchTickerData, 60000);
+      updateTop3(); // ← Inicialización correcta del Top 3
       connectLiquidationWebSocket();
     });
 
