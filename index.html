@@ -342,7 +342,6 @@
     let isTickerVisible = true;
     let ticker24HrData = [];
     let updatePending = false;
-    let wsConnected = false;
 
     const tickerState = {
       items: [],
@@ -484,6 +483,26 @@
       initTickerObserver();
     }
 
+    function buildTop3Snapshot(topLiquidated, ticker24Hr) {
+      const topItems = [];
+      topItems.push({ label: "🔥 TOP LIQ", price: undefined, change: undefined, color: "var(--color-accent)" });
+      if (topLiquidated.length === 0) {
+        topItems.push({ label: "Recolectando datos...", price: "", change: undefined, color: undefined });
+        return topItems;
+      }
+      topLiquidated.forEach(([symbol]) => {
+        const pairData = ticker24Hr.find(p => p.symbol === symbol);
+        if (pairData) {
+          const price = parseFloat(pairData.lastPrice).toFixed(2);
+          const change = parseFloat(pairData.priceChangePercent).toFixed(2);
+          const changeColor = change >= 0 ? 'var(--color-long)' : 'var(--color-short)';
+          const changeStr = change >= 0 ? `+${change}%` : `${change}%`;
+          topItems.push({ type: 'top3', symbol, label: symbol, price: `$${price}`, change: changeStr, color: changeColor });
+        }
+      });
+      return topItems;
+    }
+
     function buildTickerSnapshot(tickerData, top3Snapshot = []) {
       const { ticker24Hr, spot, futures, index } = tickerData;
       const snapshotItems = [];
@@ -553,25 +572,27 @@
       if (!led || !statusText) return;
 
       if (isActivity) {
+        // Flash estilo HDD: fuerte y breve
         led.classList.add('active');
-        setTimeout(() => led.classList.remove('active'), 180);
+        setTimeout(() => {
+          led.classList.remove('active');
+        }, 120);   // flash más corto y nítido
         return;
       }
 
+      // Estados de conexión (solo afectan el texto y un leve color base)
       led.classList.remove('active', 'reconnecting', 'disconnected');
+
       if (status === 'connected') {
-        wsConnected = true;
-        led.style.background = 'var(--led-on)';
-        led.style.boxShadow = '0 0 12px var(--led-on)';
+        led.style.background = 'var(--led-off)';        // tenue cuando idle
+        led.style.boxShadow = '0 0 4px var(--led-off)';
         statusText.textContent = 'Connected';
         statusText.style.color = 'var(--led-on)';
       } else if (status === 'reconnecting') {
-        wsConnected = false;
         led.classList.add('reconnecting');
         statusText.textContent = 'Reconnecting...';
         statusText.style.color = 'var(--led-reconnect)';
       } else if (status === 'disconnected') {
-        wsConnected = false;
         led.classList.add('disconnected');
         statusText.textContent = 'Disconnected';
         statusText.style.color = 'var(--led-disconnected)';
@@ -579,6 +600,7 @@
     }
 
     function processLiquidationUpdate(liquidation) {
+      if (!liquidation || !liquidation.p || !liquidation.q) return;
       const price = parseFloat(liquidation.p);
       const quantity = parseFloat(liquidation.q);
       const liqValue = price * quantity;
@@ -622,7 +644,7 @@
         audio.volume = 0.2;
         audio.play().catch(() => {});
         const liqBox = document.querySelector('.liquidation-box');
-        const borderColor = liquidation.S === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
+        const borderColor = (liquidation.S || 'SELL') === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
         liqBox.style.borderColor = borderColor;
         setTimeout(() => liqBox.style.borderColor = 'var(--border-color)', 500);
       }
@@ -637,7 +659,7 @@
         <span>$${price.toFixed(2)}</span>
         <span>${quantity.toFixed(2)} ($${totalValueK}k)</span>
       `;
-      item.style.color = liquidation.S === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
+      item.style.color = (liquidation.S || 'SELL') === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
 
       const liquidationContent = document.getElementById('liquidation-content');
       liquidationContent.prepend(item);
@@ -652,7 +674,10 @@
       updateWSLED('reconnecting');
       const ws = new WebSocket('wss://fstream.binance.com/ws/!forceOrder@arr');
       
-      ws.onopen = () => updateWSLED('connected');
+      ws.onopen = () => {
+        updateWSLED('connected');
+        console.log("WebSocket conectado");
+      };
 
       ws.onmessage = function(event) {
         const data = JSON.parse(event.data);
@@ -698,6 +723,14 @@
         .sort((a, b) => b[1].count - a[1].count)
         .slice(0, 3);
       latestTop3Snapshot = topLiquidated.map(([symbol]) => symbol);
+      
+      if (hasTop3Changed()) {
+        fetchTickerData();
+        // Sincronizar ticker con los nuevos datos del top 3
+        if (ticker24HrData.length > 0) {
+          enqueueTickerSnapshot(buildTop3Snapshot(topLiquidated, ticker24HrData));
+        }
+      }
       
       const topContent = document.getElementById('top-liquidated-content');
       if (!topContent) return;
