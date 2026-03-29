@@ -568,26 +568,24 @@
       if (!led || !statusText) return;
 
       if (isActivity) {
-        // Flash CAÓTICO: Reset y disparo instantáneo
-        led.classList.remove('active', 'reconnecting', 'disconnected');
-        void led.offsetWidth; // Force reflow
+        // Flash caótico + visible
+        led.classList.remove('active');
+        void led.offsetWidth;           // Force reflow para transición abrupta
         led.classList.add('active');
         setTimeout(() => {
           led.classList.remove('active');
-        }, 50); // Flash ultra corto
+        }, 100);                        // ← Cambiado a 100ms (recomendado)
         return;
       }
 
+      // Estados de conexión (solo texto + negro puro)
       led.classList.remove('active', 'reconnecting', 'disconnected');
-
       if (status === 'connecting') {
         led.style.background = '#000';
-        led.style.boxShadow = 'none';
         statusText.textContent = 'Connecting...';
         statusText.style.color = 'var(--text-muted)';
       } else if (status === 'connected') {
-        led.style.background = '#000'; // Negro puro en idle
-        led.style.boxShadow = 'none';
+        led.style.background = '#000';
         statusText.textContent = 'Connected';
         statusText.style.color = 'var(--led-on)';
       } else if (status === 'reconnecting') {
