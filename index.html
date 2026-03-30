@@ -320,24 +320,28 @@
     const INDEX_PRICE_URL = "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT";
     const CORS_PROXY_URL = "https://corsproxy.io/?";
     const ALT_CORS_PROXY_URL = "https://api.allorigins.win/raw?url=";
+
     const MAX_LIQUIDATIONS = 50;
     const MAX_LIQUIDATIONS_MEMORY = 100;
-    const TICKER_ANIMATION_DURATION = 40000;
-    const TICKER_ITEM_GAP = 40;
 
-    let tickerContent;
-    let liquidations = [];
-    let liquidationFrequency = {};
-    let longTotal = 0;
-    let shortTotal = 0;
+    // --- CONFIGURACIÓN DEL RENDER BATCHED ---
+    const MAX_LIQUIDATIONS_PER_FRAME = 30; // Máximo items por frame en renderQueue
+
+    // --- ESTADO GLOBAL ---
+    let tickerContent;                    // ref. ticker-content
+    let liquidations = [];                // histórico completo de liqs (objetos)
+    let liquidationValues = [];           // valores monetarios de cada liq
+    let liquidationFrequency = {};        // {symbol: {count, total}}
+    let longTotal = 0;                    // sumatoria LONG
+    let shortTotal = 0;                   // sumatoria SHORT
     let largestLiquidation = { amount: 0, symbol: '', side: '' };
-    let liquidationValues = [];
-    let currentTop3 = []; // Única fuente de verdad
+
+    let currentTop3 = [];                 // [symbol, ...] calculated from liquidationFrequency
     let isTickerVisible = true;
     let ticker24HrData = [];
     let updatePending = false;
 
-    const tickerState = {
+    let tickerState = {
       items: [],
       pendingQueue: [],
       speedPxPerSec: 0,
@@ -345,6 +349,11 @@
       containerWidth: 0
     };
 
+    // --- LÍMITES DE TIEMPO Y TAMAÑO ---
+    const TICKER_ANIMATION_DURATION = 40000;
+    const TICKER_ITEM_GAP = 40;
+
+    // --- LÓGICA DE PROMEDIO Y UMBRALE DE "HUGE LIQ" ---
     function calculateAverageLiquidation() {
       if (liquidationValues.length === 0) return 0;
       const sum = liquidationValues.reduce((acc, val) => acc + val, 0);
@@ -357,6 +366,7 @@
       return value > (average * 1.5);
     }
 
+    // --- VELOCIDAD DEL TICKER ---
     function getTickerDurationMs() {
       const durationValue = getComputedStyle(document.documentElement).getPropertyValue('--ticker-duration').trim();
       if (!durationValue) return TICKER_ANIMATION_DURATION;
@@ -389,7 +399,12 @@
           fetchJsonWithFallback(INDEX_PRICE_URL)
         ]);
         ticker24HrData = tickerData;
-        const snapshot = buildTickerSnapshot({ ticker24Hr: tickerData, spot: spotData, futures: futuresData, index: indexData }, currentTop3);
+        const snapshot = buildTickerSnapshot({
+          ticker24Hr: tickerData,
+          spot: spotData,
+          futures: futuresData,
+          index: indexData
+        }, currentTop3);
         enqueueTickerSnapshot(snapshot);
       } catch (error) {
         console.error("Error al obtener los datos del ticker:", error);
@@ -496,6 +511,7 @@
     function buildTickerSnapshot(tickerData, top3Snapshot = currentTop3) {
       const { ticker24Hr, spot, futures, index } = tickerData;
       const snapshotItems = [];
+
       const prices = [
         { label: 'SPOT BTC', price: spot.price ? parseFloat(spot.price).toFixed(2) : '---' },
         { label: 'FUTURES BTC', price: futures.price ? parseFloat(futures.price).toFixed(2) : '---' },
@@ -505,12 +521,12 @@
         snapshotItems.push({ label: item.label, price: `$${item.price}`, change: undefined, color: 'var(--text-main)' });
       });
 
-      const topLiquidated = top3Snapshot.length > 0 
+      const topLiquidated = top3Snapshot.length > 0
         ? top3Snapshot.map(symbol => [symbol, liquidationFrequency[symbol] || {count:0, total:0}])
         : [];
 
       snapshotItems.push({ label: "🔥 TOP LIQ", price: undefined, change: undefined, color: "var(--color-accent)" });
-      
+
       if (largestLiquidation.amount > 0) {
         const symbol = largestLiquidation.symbol;
         const pairData = ticker24Hr.find(data => data.symbol === symbol);
@@ -518,7 +534,13 @@
         const change = pairData ? parseFloat(pairData.priceChangePercent).toFixed(2) : 0;
         const changeColor = change >= 0 ? 'var(--color-long)' : 'var(--color-short)';
         const changeStr = change >= 0 ? `+${change}%` : `${change}%`;
-        snapshotItems.push({ type: 'huge_liq', label: `${symbol} (Mayor Liq: $${(largestLiquidation.amount / 1000).toFixed(1)}k)`, price: `$${price}`, change: changeStr, color: changeColor });
+        snapshotItems.push({
+          type: 'huge_liq',
+          label: `${symbol} (Mayor Liq: $${(largestLiquidation.amount / 1000).toFixed(1)}k)`,
+          price: `$${price}`,
+          change: changeStr,
+          color: changeColor
+        });
       }
 
       if (topLiquidated.length === 0) {
@@ -533,7 +555,14 @@
           const change = parseFloat(pairData.priceChangePercent).toFixed(2);
           const changeColor = change >= 0 ? 'var(--color-long)' : 'var(--color-short)';
           const changeStr = change >= 0 ? `+${change}%` : `${change}%`;
-          snapshotItems.push({ type: 'top3', symbol, label: symbol, price: `$${price}`, change: changeStr, color: changeColor });
+          snapshotItems.push({
+            type: 'top3',
+            symbol,
+            label: symbol,
+            price: `$${price}`,
+            change: changeStr,
+            color: changeColor
+          });
         }
       });
       return snapshotItems;
@@ -569,17 +598,16 @@
       if (!led || !statusText) return;
 
       if (isActivity) {
-        // Flash caótico + visible
+        // Flash caótico para cada mensaje
         led.classList.remove('active');
-        void led.offsetWidth;           // Force reflow para transición abrupta
+        void led.offsetWidth;
         led.classList.add('active');
         setTimeout(() => {
           led.classList.remove('active');
-        }, 100);                        // ← Cambiado a 100ms (recomendado)
+        }, 100);
         return;
       }
 
-      // Estados de conexión (solo texto + negro puro)
       led.classList.remove('active', 'reconnecting', 'disconnected');
       if (status === 'connecting') {
         led.style.background = '#000';
@@ -600,69 +628,116 @@
       }
     }
 
-    function processLiquidationUpdate(liquidation) {
+    // --- LÓGICA DEL PARCHETE B (PRODUCCIÓN) ---
+
+    let renderQueue = []; // items listos para el DOM
+
+    function handleLiquidationData(liquidation) {
       if (!liquidation || !liquidation.p || !liquidation.q) return;
+
       const price = parseFloat(liquidation.p);
       const quantity = parseFloat(liquidation.q);
       const liqValue = price * quantity;
 
+      // --- LÓGICA DE DATOS (INMEDIATA, SIN THROTTLING) ---
       liquidationValues.push(liqValue);
       if (liquidationValues.length > MAX_LIQUIDATIONS_MEMORY) {
         liquidationValues.shift();
       }
 
-      liquidationFrequency = {};
-      liquidations.forEach(liq => {
-        if (!liquidationFrequency[liq.symbol]) {
-          liquidationFrequency[liq.symbol] = { count: 0, total: 0 };
-        }
-        liquidationFrequency[liq.symbol].count++;
-        liquidationFrequency[liq.symbol].total += liq.price;
-      });
+      const symbol = liquidation.s;
+      const side = liquidation.S || 'SELL';
 
-      longTotal = 0;
-      shortTotal = 0;
-      largestLiquidation = { amount: 0, symbol: '', side: '' };
+      if (!liquidationFrequency[symbol]) {
+        liquidationFrequency[symbol] = { count: 0, total: 0 };
+      }
+      liquidationFrequency[symbol].count++;
+      liquidationFrequency[symbol].total += liqValue;
 
-      liquidations.forEach(liq => {
-        const liqVal = liq.price * liq.quantity;
-        if (liq.side === 'SELL') longTotal += liqVal;
-        else shortTotal += liqVal;
-        if (liqVal > largestLiquidation.amount) {
-          largestLiquidation = { amount: liqVal, symbol: liq.symbol, side: liq.side };
-        }
-      });
+      if (side === 'SELL') longTotal += liqValue;
+      else shortTotal += liqValue;
 
-      updateStatsPanel();
-      updateTop3(); // ← Cambiado: ahora usa la función central
-
-      if (isHugeLiquidation(liqValue)) {
-        const audio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-alert-quick-chime-766.mp3');
-        audio.volume = 0.2;
-        audio.play().catch(() => {});
-        const liqBox = document.querySelector('.liquidation-box');
-        const borderColor = (liquidation.S || 'SELL') === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
-        liqBox.style.borderColor = borderColor;
-        setTimeout(() => liqBox.style.borderColor = 'var(--border-color)', 500);
+      if (liqValue > largestLiquidation.amount) {
+        largestLiquidation = { amount: liqValue, symbol: symbol, side: side };
       }
 
-      const item = document.createElement('div');
-      item.className = 'liquidation-item';
-      if (isHugeLiquidation(liqValue)) item.classList.add('huge');
+      const newLiquidation = { symbol, price, quantity, side };
+      liquidations.unshift(newLiquidation);
+      if (liquidations.length > MAX_LIQUIDATIONS_MEMORY) {
+        liquidations.pop();
+      }
 
-      const totalValueK = (liqValue / 1000).toFixed(1);
-      item.innerHTML = `
-        <span>${liquidation.s}</span>
-        <span>$${price.toFixed(2)}</span>
-        <span>${quantity.toFixed(2)} ($${totalValueK}k)</span>
-      `;
-      item.style.color = (liquidation.S || 'SELL') === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
+      // --- COLA DE RENDER (NO AFECTA LÓGICA) ---
+      renderQueue.push(liquidation);
+    }
+
+    function processRenderQueue() {
+      if (renderQueue.length === 0) {
+        updatePending = false;
+        return;
+      }
 
       const liquidationContent = document.getElementById('liquidation-content');
-      liquidationContent.prepend(item);
-      if (liquidationContent.children.length > MAX_LIQUIDATIONS) {
+      const fragment = document.createDocumentFragment();
+
+      const maxItemsThisFrame = Math.min(MAX_LIQUIDATIONS_PER_FRAME, renderQueue.length);
+
+      // Procesamos hasta maxItemsThisFrame
+      for (let i = 0; i < maxItemsThisFrame; i++) {
+        const liq = renderQueue.shift();
+        const price = parseFloat(liq.p);
+        const quantity = parseFloat(liq.q);
+        const liqValue = price * quantity;
+
+        const item = document.createElement('div');
+        item.className = 'liquidation-item';
+        if (isHugeLiquidation(liqValue)) item.classList.add('huge');
+
+        const totalValueK = (liqValue / 1000).toFixed(1);
+        item.innerHTML = `
+          <span>${liq.s}</span>
+          <span>$${price.toFixed(2)}</span>
+          <span>${quantity.toFixed(2)} ($${totalValueK}k)</span>
+        `;
+        item.style.color = (liq.S || 'SELL') === 'SELL'
+          ? 'var(--color-long)'
+          : 'var(--color-short)';
+
+        fragment.prepend(item);
+
+        if (isHugeLiquidation(liqValue)) {
+          triggerHugeAlert(liqValue, liq.S || 'SELL');
+        }
+      }
+
+      // Actualizar el DOM en un solo reflow
+      liquidationContent.prepend(fragment);
+
+      // Mantener el número deseado de líneas visibles
+      while (liquidationContent.children.length > MAX_LIQUIDATIONS) {
         liquidationContent.removeChild(liquidationContent.lastChild);
       }
+
+      // Actualizar stats y top3 solo una vez por frame
+      updateStatsPanel();
+      updateTop3();
+      
+      // Continuar procesando en el siguiente frame si quedan items
+      if (renderQueue.length > 0) {
+        requestAnimationFrame(processRenderQueue);
+      } else {
+        updatePending = false;
+      }
+    }
+
+    function triggerHugeAlert(value, side) {
+      const audio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-alert-quick-chime-766.mp3');
+      audio.volume = 0.2;
+      audio.play().catch(() => {});
+      const liqBox = document.querySelector('.liquidation-box');
+      const borderColor = side === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
+      liqBox.style.borderColor = borderColor;
+      setTimeout(() => liqBox.style.borderColor = 'var(--border-color)', 500);
     }
 
     function connectLiquidationWebSocket() {
@@ -681,26 +756,11 @@
           // Flash del LED (Caótico: ocurre para cada mensaje sin throttling)
           updateWSLED(null, true);
 
-          const price = parseFloat(liquidation.p);
-          const quantity = parseFloat(liquidation.q);
-          if (isNaN(price) || isNaN(quantity)) return;
+          handleLiquidationData(liquidation);
 
-          const newLiquidation = {
-            symbol: liquidation.s,
-            price: price,
-            quantity: quantity,
-            side: liquidation.S
-          };
-          liquidations.unshift(newLiquidation);
-          if (liquidations.length > MAX_LIQUIDATIONS_MEMORY) {
-            liquidations.pop();
-          }
           if (!updatePending) {
             updatePending = true;
-            requestAnimationFrame(() => {
-              updatePending = false;
-              processLiquidationUpdate(liquidation);
-            });
+            requestAnimationFrame(processRenderQueue);
           }
         }
       };
@@ -716,7 +776,6 @@
       };
     }
 
-    // === NUEVA LÓGICA CENTRALIZADA - SINGLE SOURCE OF TRUTH ===
     function updateTop3() {
       const topLiquidated = Object.entries(liquidationFrequency)
         .sort((a, b) => b[1].count - a[1].count)
@@ -804,7 +863,7 @@
       initializeTicker();
       fetchTickerData();
       setInterval(fetchTickerData, 60000);
-      updateTop3(); // ← Inicialización correcta del Top 3
+      updateTop3();
       connectLiquidationWebSocket();
     });
 
