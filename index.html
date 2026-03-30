@@ -17,7 +17,6 @@
       --color-long: #10b981;
       --color-short: #ef4444;
       --color-accent: #eab308;
-      --ticker-duration: 60s;
       --led-on: #22c55e;
       --led-off: #166534;
       --led-reconnect: #eab308;
@@ -29,45 +28,12 @@
       background-color: var(--bg-color);
       color: var(--text-main);
       margin: 0;
-      padding: 0;
+      padding: 20px 0;
       display: flex;
       flex-direction: column;
       align-items: center;
       min-height: 100vh;
     }
-
-    /* --- TICKER --- */
-    .ticker-container {
-      width: 100%;
-      background-color: var(--card-bg);
-      border-bottom: 1px solid var(--border-color);
-      padding: 12px 0;
-      overflow: hidden;
-      white-space: nowrap;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-      margin-bottom: 30px;
-    }
-    .ticker-content {
-      position: relative;
-      height: 1.5em;
-      will-change: transform;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.95em;
-    }
-    .ticker-item {
-      position: absolute;
-      top: 0;
-      left: 0;
-      display: inline-flex;
-      align-items: center;
-      padding: 0 25px;
-      border-right: 1px solid var(--border-color);
-      white-space: nowrap;
-      opacity: 0;
-      transition: opacity 0.4s ease;
-    }
-    .ticker-item:last-child { border-right: none; }
-    .ticker-item span { margin-right: 8px; }
 
     /* --- LAYOUT --- */
     .dashboard-grid {
@@ -122,7 +88,6 @@
       border-radius: 50%;
       background: #000;
       box-shadow: none;
-      /* Sin transición: estricto y abrupto */
     }
     .ws-led.active {
       background: var(--led-on);
@@ -143,8 +108,52 @@
       to { opacity: 1; }
     }
 
+    /* --- PRECIOS REALTIME --- */
+    #websocketContainer {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 15px;
+    }
+    .price-card {
+      background: rgba(255, 255, 255, 0.03);
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .price-card .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .exchange-name {
+      font-size: 0.75em;
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .status {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .status.connected { background: var(--color-long); box-shadow: 0 0 8px var(--color-long); }
+    .status.disconnected { background: var(--color-short); }
+    
+    .price {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.1em;
+      font-weight: bold;
+      transition: color 0.2s ease;
+    }
+    .price.loading { color: var(--text-muted); }
+    .price.up { color: var(--color-long); }
+    .price.down { color: var(--color-short); }
+
     /* --- CAJA DE LIQUIDACIONES --- */
-    .liquidation-box { height: 450px; position: relative; }
+    .liquidation-box { height: 600px; position: relative; }
     .liquidation-header {
       display: flex;
       justify-content: space-between;
@@ -230,19 +239,10 @@
     .highlight { color: var(--color-accent) !important; font-size: 1.05em; }
 
     ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
-    ::-webkit-scrollbar-thumb:hover { background: #64748b; }
   </style>
 </head>
 <body>
-  <!-- TICKER -->
-  <div class="ticker-container">
-    <div class="ticker-content" id="ticker">
-      Cargando datos del mercado...
-    </div>
-  </div>
-
   <div class="dashboard-grid">
     <!-- CAJA DE LIQUIDACIONES -->
     <div class="card liquidation-box">
@@ -265,6 +265,42 @@
 
     <!-- COLUMNA DERECHA -->
     <div style="display: flex; flex-direction: column; gap: 25px;">
+      
+      <!-- PANEL DE PRECIOS EN TIEMPO REAL -->
+      <div class="card">
+        <div class="card-title">⚡ Precio BTC (Realtime)</div>
+        <div id="websocketContainer">
+          <div class="price-card" id="binanceRealtime">
+            <div class="card-header">
+              <span class="exchange-name">Binance Spot</span>
+              <span class="status disconnected" id="binanceRealtimeStatus"></span>
+            </div>
+            <div class="price loading" id="binanceRealtimePrice">Conectando...</div>
+          </div>
+          <div class="price-card" id="coinbase">
+            <div class="card-header">
+              <span class="exchange-name">Coinbase Pro</span>
+              <span class="status disconnected" id="coinbaseStatus"></span>
+            </div>
+            <div class="price loading" id="coinbasePrice">Conectando...</div>
+          </div>
+          <div class="price-card" id="kraken">
+            <div class="card-header">
+              <span class="exchange-name">Kraken</span>
+              <span class="status disconnected" id="krakenStatus"></span>
+            </div>
+            <div class="price loading" id="krakenPrice">Conectando...</div>
+          </div>
+          <div class="price-card" id="bitfinex">
+            <div class="card-header">
+              <span class="exchange-name">Bitfinex</span>
+              <span class="status disconnected" id="bitfinexStatus"></span>
+            </div>
+            <div class="price loading" id="bitfinexPrice">Conectando...</div>
+          </div>
+        </div>
+      </div>
+
       <!-- ESTADÍSTICAS -->
       <div class="card">
         <div class="card-title">📊 Estadísticas (Últimas 100 Liq.)</div>
@@ -314,282 +350,114 @@
   </div>
 
   <script>
-    const TICKER_24HR_URL = "https://api.binance.com/api/v3/ticker/24hr";
-    const SPOT_TICKER_URL = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT";
-    const FUTURES_TICKER_URL = "https://fapi.binance.com/fapi/v1/ticker/price?symbol=BTCUSDT";
-    const INDEX_PRICE_URL = "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT";
-    const CORS_PROXY_URL = "https://corsproxy.io/?";
-    const ALT_CORS_PROXY_URL = "https://api.allorigins.win/raw?url=";
-
     const MAX_LIQUIDATIONS = 50;
     const MAX_LIQUIDATIONS_MEMORY = 100;
-
-    // --- CONFIGURACIÓN DEL RENDER BATCHED ---
-    const MAX_LIQUIDATIONS_PER_FRAME = 30; // Máximo items por frame en renderQueue
+    const MAX_LIQUIDATIONS_PER_FRAME = 30;
 
     // --- ESTADO GLOBAL ---
-    let tickerContent;                    // ref. ticker-content
-    let liquidations = [];                // histórico completo de liqs (objetos)
-    let liquidationValues = [];           // valores monetarios de cada liq
-    let liquidationFrequency = {};        // {symbol: {count, total}}
-    let longTotal = 0;                    // sumatoria LONG
-    let shortTotal = 0;                   // sumatoria SHORT
+    let liquidations = [];
+    let liquidationValues = [];
+    let liquidationFrequency = {};
+    let longTotal = 0;
+    let shortTotal = 0;
     let largestLiquidation = { amount: 0, symbol: '', side: '' };
-
-    let currentTop3 = [];                 // [symbol, ...] calculated from liquidationFrequency
-    let isTickerVisible = true;
-    let ticker24HrData = [];
+    let currentTop3 = [];
     let updatePending = false;
+    let renderQueue = [];
 
-    let tickerState = {
-      items: [],
-      pendingQueue: [],
-      speedPxPerSec: 0,
-      lastFrameTime: null,
-      containerWidth: 0
-    };
+    // --- NUEVO: PANELES DE PRECIOS EN TIEMPO REAL ---
+    const preciosAnteriores = {};
+    const elements = {};
+    const config = { websockets: ['binanceRealtime', 'coinbase', 'kraken', 'bitfinex'] };
 
-    // --- LÍMITES DE TIEMPO Y TAMAÑO ---
-    const TICKER_ANIMATION_DURATION = 40000;
-    const TICKER_ITEM_GAP = 40;
+    function initializePriceElements() {
+      config.websockets.forEach(key => {
+        elements[key] = {
+          price: document.getElementById(`${key}Price`),
+          status: document.getElementById(`${key}Status`)
+        };
+        preciosAnteriores[key] = null;
+      });
+    }
 
-    // --- LÓGICA DE PROMEDIO Y UMBRALE DE "HUGE LIQ" ---
+    function updatePriceColor(key, price) {
+      const el = elements[key].price;
+      const prev = preciosAnteriores[key];
+      const currentPrice = parseFloat(price);
+
+      preciosAnteriores[key] = currentPrice;
+      el.textContent = `$${currentPrice.toFixed(2)}`;
+      el.classList.remove('loading');
+
+      if (prev !== null && currentPrice !== prev) {
+        const direction = currentPrice > prev ? 'up' : 'down';
+        const opposite = direction === 'up' ? 'down' : 'up';
+        el.classList.remove(opposite);
+        el.classList.add(direction);
+      }
+    }
+
+    function updateConnectionStatus(key, isConnected) {
+      const statusEl = elements[key].status;
+      if (statusEl) {
+        statusEl.classList.toggle('connected', isConnected);
+        statusEl.classList.toggle('disconnected', !isConnected);
+      }
+    }
+
+    function setupPriceWebSocket(key, url, subscription, processData) {
+      try {
+        const ws = new WebSocket(url);
+        ws.onopen = () => {
+          console.log(`${key} price connected`);
+          updateConnectionStatus(key, true);
+          if (subscription) ws.send(JSON.stringify(subscription));
+        };
+        ws.onmessage = event => {
+          try {
+            const data = JSON.parse(event.data);
+            const price = processData(data);
+            if (price && !isNaN(price)) updatePriceColor(key, price);
+          } catch (err) {}
+        };
+        ws.onclose = () => {
+          updateConnectionStatus(key, false);
+          setTimeout(() => setupPriceWebSocket(key, url, subscription, processData), 5000);
+        };
+        ws.onerror = () => updateConnectionStatus(key, false);
+        return ws;
+      } catch (err) {
+        updateConnectionStatus(key, false);
+      }
+    }
+
+    function initializePriceWebSockets() {
+      setupPriceWebSocket('binanceRealtime', 'wss://stream.binance.com:9443/ws/btcusdt@trade', null, data => data.p);
+      setupPriceWebSocket('coinbase', 'wss://ws-feed.exchange.coinbase.com', {
+        type: 'subscribe', product_ids: ['BTC-USD'], channels: ['ticker']
+      }, data => (data.type === 'ticker' && data.product_id === 'BTC-USD') ? data.price : null);
+      setupPriceWebSocket('kraken', 'wss://ws.kraken.com', {
+        event: 'subscribe', pair: ['XBT/USD'], subscription: { name: 'ticker' }
+      }, data => (Array.isArray(data) && data[1]?.c) ? data[1].c[0] : null);
+      
+      let bitfinexChId = null;
+      setupPriceWebSocket('bitfinex', 'wss://api-pub.bitfinex.com/ws/2', {
+        event: 'subscribe', channel: 'ticker', symbol: 'tBTCUSD'
+      }, data => {
+        if (data.event === 'subscribed' && data.channel === 'ticker') { bitfinexChId = data.chanId; return null; }
+        return (Array.isArray(data) && data[0] === bitfinexChId && data[1] !== 'hb') ? data[1][6] : null;
+      });
+    }
+
+    // --- LÓGICA DE LIQUIDACIONES ---
     function calculateAverageLiquidation() {
       if (liquidationValues.length === 0) return 0;
-      const sum = liquidationValues.reduce((acc, val) => acc + val, 0);
-      return sum / liquidationValues.length;
+      return liquidationValues.reduce((acc, val) => acc + val, 0) / liquidationValues.length;
     }
 
     function isHugeLiquidation(value) {
-      const average = calculateAverageLiquidation();
-      if (liquidationValues.length < 10) return value > 50000;
-      return value > (average * 1.5);
-    }
-
-    // --- VELOCIDAD DEL TICKER ---
-    function getTickerDurationMs() {
-      const durationValue = getComputedStyle(document.documentElement).getPropertyValue('--ticker-duration').trim();
-      if (!durationValue) return TICKER_ANIMATION_DURATION;
-      if (durationValue.endsWith('ms')) return parseFloat(durationValue) || TICKER_ANIMATION_DURATION;
-      if (durationValue.endsWith('s')) return (parseFloat(durationValue) || 40) * 1000;
-      return parseFloat(durationValue) * 1000 || TICKER_ANIMATION_DURATION;
-    }
-
-    function buildProxyUrl(proxyBase, url) {
-      return `${proxyBase}${encodeURIComponent(url)}`;
-    }
-
-    async function fetchJsonWithFallback(url) {
-      const endpoints = [url, buildProxyUrl(CORS_PROXY_URL, url), buildProxyUrl(ALT_CORS_PROXY_URL, url)];
-      for (const endpoint of endpoints) {
-        try {
-          const response = await fetch(endpoint);
-          if (response.ok) return await response.json();
-        } catch (e) {}
-      }
-      throw new Error("All fetch attempts failed");
-    }
-
-    async function fetchTickerData() {
-      try {
-        const [tickerData, spotData, futuresData, indexData] = await Promise.all([
-          fetchJsonWithFallback(TICKER_24HR_URL),
-          fetchJsonWithFallback(SPOT_TICKER_URL),
-          fetchJsonWithFallback(FUTURES_TICKER_URL),
-          fetchJsonWithFallback(INDEX_PRICE_URL)
-        ]);
-        ticker24HrData = tickerData;
-        const snapshot = buildTickerSnapshot({
-          ticker24Hr: tickerData,
-          spot: spotData,
-          futures: futuresData,
-          index: indexData
-        }, currentTop3);
-        enqueueTickerSnapshot(snapshot);
-      } catch (error) {
-        console.error("Error al obtener los datos del ticker:", error);
-      }
-    }
-
-    function updateTickerMetrics() {
-      if (!tickerContent) return;
-      tickerState.containerWidth = tickerContent.getBoundingClientRect().width;
-      const durationMs = getTickerDurationMs();
-      tickerState.speedPxPerSec = tickerState.containerWidth / (durationMs / 1000);
-    }
-
-    function enqueueTickerSnapshot(snapshot) {
-      snapshot.forEach(item => tickerState.pendingQueue.push(item));
-      if (tickerState.pendingQueue.length < 3) {
-        snapshot.forEach(item => tickerState.pendingQueue.push({ ...item }));
-        snapshot.forEach(item => tickerState.pendingQueue.push({ ...item }));
-      } else if (tickerState.pendingQueue.length < 5) {
-        snapshot.forEach(item => tickerState.pendingQueue.push({ ...item }));
-      }
-    }
-
-    function addNextTickerItem() {
-      if (tickerState.pendingQueue.length === 0) return;
-      const data = tickerState.pendingQueue.shift();
-      const itemEl = createTickerItem(data.label, data.price, data.change, data.color);
-      tickerContent.appendChild(itemEl);
-      const itemWidth = itemEl.getBoundingClientRect().width;
-      const lastItem = tickerState.items[tickerState.items.length - 1];
-      const baseX = tickerState.containerWidth + TICKER_ITEM_GAP;
-      const startX = lastItem ? Math.max(lastItem.x + lastItem.width + TICKER_ITEM_GAP, baseX) : baseX;
-      const tickerItem = { el: itemEl, x: startX, width: itemWidth };
-      tickerState.items.push(tickerItem);
-      itemEl.style.transform = `translateX(${tickerItem.x}px)`;
-      requestAnimationFrame(() => { itemEl.style.opacity = '1'; });
-    }
-
-    function initTickerObserver() {
-      const observer = new IntersectionObserver((entries) => {
-        isTickerVisible = entries[0].isIntersecting;
-      }, { threshold: 0.1 });
-      observer.observe(tickerContent);
-    }
-
-    function runTickerAnimation(timestamp) {
-      if (!isTickerVisible) {
-        tickerState.lastFrameTime = timestamp;
-        requestAnimationFrame(runTickerAnimation);
-        return;
-      }
-      if (!tickerState.lastFrameTime) tickerState.lastFrameTime = timestamp;
-      const deltaSeconds = (timestamp - tickerState.lastFrameTime) / 1000;
-      tickerState.lastFrameTime = timestamp;
-      const distance = tickerState.speedPxPerSec * deltaSeconds;
-      tickerState.items.forEach(item => {
-        item.x -= distance;
-        item.el.style.transform = `translateX(${item.x}px)`;
-      });
-      while (tickerState.items.length > 0 && tickerState.items[0].x + tickerState.items[0].width < -TICKER_ITEM_GAP) {
-        const removed = tickerState.items.shift();
-        removed.el.remove();
-      }
-      const lastItem = tickerState.items[tickerState.items.length - 1];
-      const canAdd = !lastItem || lastItem.x + lastItem.width + TICKER_ITEM_GAP < tickerState.containerWidth + TICKER_ITEM_GAP;
-      if (tickerState.pendingQueue.length > 0 && canAdd) {
-        addNextTickerItem();
-      }
-      requestAnimationFrame(runTickerAnimation);
-    }
-
-    function initializeTicker() {
-      tickerContent.innerHTML = '';
-      tickerState.items = [];
-      tickerState.pendingQueue = [];
-      tickerState.lastFrameTime = null;
-      updateTickerMetrics();
-      enqueueTickerSnapshot([{ label: 'Cargando datos del mercado...', price: '', change: undefined, color: 'var(--text-muted)' }]);
-      addNextTickerItem();
-      requestAnimationFrame(runTickerAnimation);
-      initTickerObserver();
-    }
-
-    function buildTop3Snapshot(topLiquidated, ticker24Hr) {
-      const topItems = [];
-      topItems.push({ label: "🔥 TOP LIQ", price: undefined, change: undefined, color: "var(--color-accent)" });
-      if (topLiquidated.length === 0) {
-        topItems.push({ label: "Recolectando datos...", price: "", change: undefined, color: undefined });
-        return topItems;
-      }
-      topLiquidated.forEach(([symbol]) => {
-        const pairData = ticker24Hr.find(p => p.symbol === symbol);
-        if (pairData) {
-          const price = parseFloat(pairData.lastPrice).toFixed(2);
-          const change = parseFloat(pairData.priceChangePercent).toFixed(2);
-          const changeColor = change >= 0 ? 'var(--color-long)' : 'var(--color-short)';
-          const changeStr = change >= 0 ? `+${change}%` : `${change}%`;
-          topItems.push({ type: 'top3', symbol, label: symbol, price: `$${price}`, change: changeStr, color: changeColor });
-        }
-      });
-      return topItems;
-    }
-
-    function buildTickerSnapshot(tickerData, top3Snapshot = currentTop3) {
-      const { ticker24Hr, spot, futures, index } = tickerData;
-      const snapshotItems = [];
-
-      const prices = [
-        { label: 'SPOT BTC', price: spot.price ? parseFloat(spot.price).toFixed(2) : '---' },
-        { label: 'FUTURES BTC', price: futures.price ? parseFloat(futures.price).toFixed(2) : '---' },
-        { label: 'INDEX PRICE', price: index.markPrice ? parseFloat(index.markPrice).toFixed(2) : '---' }
-      ];
-      prices.forEach(item => {
-        snapshotItems.push({ label: item.label, price: `$${item.price}`, change: undefined, color: 'var(--text-main)' });
-      });
-
-      const topLiquidated = top3Snapshot.length > 0
-        ? top3Snapshot.map(symbol => [symbol, liquidationFrequency[symbol] || {count:0, total:0}])
-        : [];
-
-      snapshotItems.push({ label: "🔥 TOP LIQ", price: undefined, change: undefined, color: "var(--color-accent)" });
-
-      if (largestLiquidation.amount > 0) {
-        const symbol = largestLiquidation.symbol;
-        const pairData = ticker24Hr.find(data => data.symbol === symbol);
-        const price = pairData ? parseFloat(pairData.lastPrice).toFixed(2) : 'N/A';
-        const change = pairData ? parseFloat(pairData.priceChangePercent).toFixed(2) : 0;
-        const changeColor = change >= 0 ? 'var(--color-long)' : 'var(--color-short)';
-        const changeStr = change >= 0 ? `+${change}%` : `${change}%`;
-        snapshotItems.push({
-          type: 'huge_liq',
-          label: `${symbol} (Mayor Liq: $${(largestLiquidation.amount / 1000).toFixed(1)}k)`,
-          price: `$${price}`,
-          change: changeStr,
-          color: changeColor
-        });
-      }
-
-      if (topLiquidated.length === 0) {
-        snapshotItems.push({ label: "Recolectando datos...", price: "", change: undefined, color: undefined });
-        return snapshotItems;
-      }
-
-      topLiquidated.forEach(([symbol]) => {
-        const pairData = ticker24Hr.find(data => data.symbol === symbol);
-        if (pairData) {
-          const price = parseFloat(pairData.lastPrice).toFixed(2);
-          const change = parseFloat(pairData.priceChangePercent).toFixed(2);
-          const changeColor = change >= 0 ? 'var(--color-long)' : 'var(--color-short)';
-          const changeStr = change >= 0 ? `+${change}%` : `${change}%`;
-          snapshotItems.push({
-            type: 'top3',
-            symbol,
-            label: symbol,
-            price: `$${price}`,
-            change: changeStr,
-            color: changeColor
-          });
-        }
-      });
-      return snapshotItems;
-    }
-
-    function createTickerItem(label, price, change, color) {
-      const tickerItem = document.createElement('div');
-      tickerItem.className = 'ticker-item';
-      const labelSpan = document.createElement('span');
-      labelSpan.textContent = label;
-      labelSpan.style.color = "var(--text-muted)";
-      tickerItem.appendChild(labelSpan);
-      if (price !== undefined) {
-        const priceSpan = document.createElement('span');
-        priceSpan.textContent = price;
-        priceSpan.style.color = "var(--text-main)";
-        tickerItem.appendChild(priceSpan);
-      }
-      if (change !== undefined) {
-        const changeSpan = document.createElement('span');
-        changeSpan.textContent = change;
-        changeSpan.style.color = color;
-        tickerItem.appendChild(changeSpan);
-      } else if (color && !change && !price) {
-        labelSpan.style.color = color;
-      }
-      return tickerItem;
+      const avg = calculateAverageLiquidation();
+      return liquidationValues.length < 10 ? value > 50000 : value > (avg * 1.5);
     }
 
     function updateWSLED(status, isActivity = false) {
@@ -598,13 +466,10 @@
       if (!led || !statusText) return;
 
       if (isActivity) {
-        // Flash caótico para cada mensaje
         led.classList.remove('active');
         void led.offsetWidth;
         led.classList.add('active');
-        setTimeout(() => {
-          led.classList.remove('active');
-        }, 100);
+        setTimeout(() => led.classList.remove('active'), 100);
         return;
       }
 
@@ -628,247 +493,116 @@
       }
     }
 
-    // --- LÓGICA DEL PARCHETE B (PRODUCCIÓN) ---
-
-    let renderQueue = []; // items listos para el DOM
-
     function handleLiquidationData(liquidation) {
-      if (!liquidation || !liquidation.p || !liquidation.q) return;
-
+      if (!liquidation?.p || !liquidation?.q) return;
       const price = parseFloat(liquidation.p);
       const quantity = parseFloat(liquidation.q);
       const liqValue = price * quantity;
 
-      // --- LÓGICA DE DATOS (INMEDIATA, SIN THROTTLING) ---
       liquidationValues.push(liqValue);
-      if (liquidationValues.length > MAX_LIQUIDATIONS_MEMORY) {
-        liquidationValues.shift();
-      }
+      if (liquidationValues.length > MAX_LIQUIDATIONS_MEMORY) liquidationValues.shift();
 
       const symbol = liquidation.s;
       const side = liquidation.S || 'SELL';
 
-      if (!liquidationFrequency[symbol]) {
-        liquidationFrequency[symbol] = { count: 0, total: 0 };
-      }
+      if (!liquidationFrequency[symbol]) liquidationFrequency[symbol] = { count: 0, total: 0 };
       liquidationFrequency[symbol].count++;
       liquidationFrequency[symbol].total += liqValue;
 
-      if (side === 'SELL') longTotal += liqValue;
-      else shortTotal += liqValue;
+      if (side === 'SELL') longTotal += liqValue; else shortTotal += liqValue;
+      if (liqValue > largestLiquidation.amount) largestLiquidation = { amount: liqValue, symbol, side };
 
-      if (liqValue > largestLiquidation.amount) {
-        largestLiquidation = { amount: liqValue, symbol: symbol, side: side };
-      }
-
-      const newLiquidation = { symbol, price, quantity, side };
-      liquidations.unshift(newLiquidation);
-      if (liquidations.length > MAX_LIQUIDATIONS_MEMORY) {
-        liquidations.pop();
-      }
-
-      // --- COLA DE RENDER (NO AFECTA LÓGICA) ---
+      liquidations.unshift({ symbol, price, quantity, side });
+      if (liquidations.length > MAX_LIQUIDATIONS_MEMORY) liquidations.pop();
       renderQueue.push(liquidation);
     }
 
     function processRenderQueue() {
-      if (renderQueue.length === 0) {
-        updatePending = false;
-        return;
-      }
-
-      const liquidationContent = document.getElementById('liquidation-content');
+      if (renderQueue.length === 0) { updatePending = false; return; }
+      const content = document.getElementById('liquidation-content');
       const fragment = document.createDocumentFragment();
+      const max = Math.min(MAX_LIQUIDATIONS_PER_FRAME, renderQueue.length);
 
-      const maxItemsThisFrame = Math.min(MAX_LIQUIDATIONS_PER_FRAME, renderQueue.length);
-
-      // Procesamos hasta maxItemsThisFrame
-      for (let i = 0; i < maxItemsThisFrame; i++) {
+      for (let i = 0; i < max; i++) {
         const liq = renderQueue.shift();
         const price = parseFloat(liq.p);
         const quantity = parseFloat(liq.q);
-        const liqValue = price * quantity;
-
+        const val = price * quantity;
         const item = document.createElement('div');
         item.className = 'liquidation-item';
-        if (isHugeLiquidation(liqValue)) item.classList.add('huge');
-
-        const totalValueK = (liqValue / 1000).toFixed(1);
-        item.innerHTML = `
-          <span>${liq.s}</span>
-          <span>$${price.toFixed(2)}</span>
-          <span>${quantity.toFixed(2)} ($${totalValueK}k)</span>
-        `;
-        item.style.color = (liq.S || 'SELL') === 'SELL'
-          ? 'var(--color-long)'
-          : 'var(--color-short)';
-
+        if (isHugeLiquidation(val)) item.classList.add('huge');
+        item.innerHTML = `<span>${liq.s}</span><span>$${price.toFixed(2)}</span><span>${quantity.toFixed(2)} ($${(val/1000).toFixed(1)}k)</span>`;
+        item.style.color = (liq.S || 'SELL') === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
         fragment.prepend(item);
-
-        if (isHugeLiquidation(liqValue)) {
-          triggerHugeAlert(liqValue, liq.S || 'SELL');
-        }
+        if (isHugeLiquidation(val)) triggerHugeAlert(liq.S || 'SELL');
       }
-
-      // Actualizar el DOM en un solo reflow
-      liquidationContent.prepend(fragment);
-
-      // Mantener el número deseado de líneas visibles
-      while (liquidationContent.children.length > MAX_LIQUIDATIONS) {
-        liquidationContent.removeChild(liquidationContent.lastChild);
-      }
-
-      // Actualizar stats y top3 solo una vez por frame
+      content.prepend(fragment);
+      while (content.children.length > MAX_LIQUIDATIONS) content.removeChild(content.lastChild);
       updateStatsPanel();
       updateTop3();
-      
-      // Continuar procesando en el siguiente frame si quedan items
-      if (renderQueue.length > 0) {
-        requestAnimationFrame(processRenderQueue);
-      } else {
-        updatePending = false;
-      }
+      if (renderQueue.length > 0) requestAnimationFrame(processRenderQueue); else updatePending = false;
     }
 
-    function triggerHugeAlert(value, side) {
+    function triggerHugeAlert(side) {
       const audio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-alert-quick-chime-766.mp3');
-      audio.volume = 0.2;
-      audio.play().catch(() => {});
-      const liqBox = document.querySelector('.liquidation-box');
-      const borderColor = side === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
-      liqBox.style.borderColor = borderColor;
-      setTimeout(() => liqBox.style.borderColor = 'var(--border-color)', 500);
-    }
-
-    function connectLiquidationWebSocket() {
-      updateWSLED('connecting');
-      const ws = new WebSocket('wss://fstream.binance.com/ws/!forceOrder@arr');
-      
-      ws.onopen = () => {
-        updateWSLED('connected');
-        console.log("WebSocket conectado");
-      };
-
-      ws.onmessage = function(event) {
-        const data = JSON.parse(event.data);
-        const liquidation = data.o;
-        if (liquidation) {
-          // Flash del LED (Caótico: ocurre para cada mensaje sin throttling)
-          updateWSLED(null, true);
-
-          handleLiquidationData(liquidation);
-
-          if (!updatePending) {
-            updatePending = true;
-            requestAnimationFrame(processRenderQueue);
-          }
-        }
-      };
-
-      ws.onclose = function() {
-        updateWSLED('reconnecting');
-        setTimeout(connectLiquidationWebSocket, 1500);
-      };
-
-      ws.onerror = function(error) {
-        updateWSLED('disconnected');
-        console.error("Error en WebSocket:", error);
-      };
+      audio.volume = 0.2; audio.play().catch(() => {});
+      const box = document.querySelector('.liquidation-box');
+      box.style.borderColor = side === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
+      setTimeout(() => box.style.borderColor = 'var(--border-color)', 500);
     }
 
     function updateTop3() {
-      const topLiquidated = Object.entries(liquidationFrequency)
-        .sort((a, b) => b[1].count - a[1].count)
-        .slice(0, 3);
-
-      currentTop3 = topLiquidated.map(([symbol]) => symbol);
-
-      renderTop3Visual(topLiquidated);
-
-      if (ticker24HrData.length > 0) {
-        const snapshot = buildTickerSnapshot({ 
-          ticker24Hr: ticker24HrData, 
-          spot: {}, futures: {}, index: {} 
-        }, currentTop3);
-        enqueueTickerSnapshot(snapshot);
-      }
-    }
-
-    function renderTop3Visual(topLiquidated) {
-      const topContent = document.getElementById('top-liquidated-content');
-      if (!topContent) return;
-      topContent.innerHTML = '';
-      if (topLiquidated.length === 0) {
-        topContent.innerHTML = '<span style="color: var(--text-muted); font-size: 0.9em;">Esperando datos...</span>';
-        return;
-      }
-      topLiquidated.forEach(([symbol, data], index) => {
+      const top = Object.entries(liquidationFrequency).sort((a, b) => b[1].count - a[1].count).slice(0, 3);
+      currentTop3 = top.map(([s]) => s);
+      const content = document.getElementById('top-liquidated-content');
+      if (!content) return;
+      content.innerHTML = top.length === 0 ? '<span style="color: var(--text-muted); font-size: 0.9em;">Esperando datos...</span>' : '';
+      top.forEach(([symbol, data], index) => {
         const item = document.createElement('div');
         item.className = 'top-item';
-        const avgPrice = (data.total / data.count).toFixed(2);
-        item.innerHTML = `
-          <div style="flex: 1; min-width: 0;">
-            <span class="top-symbol">${index + 1}. ${symbol}</span>
-            <span class="top-detail">${data.count} liq.</span>
-          </div>
-          <div style="align-items: flex-end; text-align: right; min-width: fit-content;">
-            <span style="font-family: \'JetBrains Mono\', monospace; font-size: 0.95em; font-weight: bold;">$${avgPrice}</span>
-            <span class="top-detail">prom.</span>
-          </div>
-        `;
-        topContent.appendChild(item);
+        item.innerHTML = `<div style="flex:1;min-width:0;"><span class="top-symbol">${index+1}. ${symbol}</span><span class="top-detail">${data.count} liq.</span></div><div style="text-align:right;"><span style="font-family:'JetBrains Mono';font-weight:bold;">$${(data.total/data.count).toFixed(2)}</span><span class="top-detail">prom.</span></div>`;
+        content.appendChild(item);
       });
     }
 
     function updateStatsPanel() {
       const total = longTotal + shortTotal;
-      const longPercent = total > 0 ? ((longTotal / total) * 100).toFixed(1) : 0;
-      const shortPercent = total > 0 ? ((shortTotal / total) * 100).toFixed(1) : 0;
-      const ratio = shortTotal > 0 ? (longTotal / shortTotal).toFixed(2) : '0.00';
-      const avgLiquidationValue = liquidations.length > 0 ? (total / liquidations.length).toFixed(0) : 0;
-      
-      document.getElementById('long-liquidated').textContent = `$${(longTotal / 1000).toFixed(1)}k (${longPercent}%)`;
-      document.getElementById('short-liquidated').textContent = `$${(shortTotal / 1000).toFixed(1)}k (${shortPercent}%)`;
-      document.getElementById('ratio-ls').textContent = ratio;
-      document.getElementById('avg-liquidation').textContent = `$${Number(avgLiquidationValue).toLocaleString()}`;
-      
-      const largestText = largestLiquidation.amount > 0 ? `$${(largestLiquidation.amount / 1000).toFixed(1)}k ${largestLiquidation.symbol}` : '-';
-      const largestElement = document.getElementById('largest-liquidation');
-      largestElement.textContent = largestText;
-      largestElement.className = 'stats-value highlight' + (largestLiquidation.amount > 0 ? (largestLiquidation.side === 'SELL' ? ' long-color' : ' short-color') : '');
-      
+      const lp = total > 0 ? ((longTotal/total)*100).toFixed(1) : 0;
+      const sp = total > 0 ? ((shortTotal/total)*100).toFixed(1) : 0;
+      document.getElementById('long-liquidated').textContent = `$${(longTotal/1000).toFixed(1)}k (${lp}%)`;
+      document.getElementById('short-liquidated').textContent = `$${(shortTotal/1000).toFixed(1)}k (${sp}%)`;
+      document.getElementById('ratio-ls').textContent = shortTotal > 0 ? (longTotal/shortTotal).toFixed(2) : '0.00';
+      document.getElementById('avg-liquidation').textContent = `$${Number(calculateAverageLiquidation().toFixed(0)).toLocaleString()}`;
+      document.getElementById('largest-liquidation').textContent = largestLiquidation.amount > 0 ? `$${(largestLiquidation.amount/1000).toFixed(1)}k ${largestLiquidation.symbol}` : '-';
+      document.getElementById('largest-liquidation').className = 'stats-value highlight ' + (largestLiquidation.side === 'SELL' ? 'long-color' : 'short-color');
       document.getElementById('total-count').textContent = liquidations.length;
-      
-      const average = calculateAverageLiquidation();
-      const threshold = average * 1.5;
-      const thresholdElement = document.getElementById('huge-threshold');
-      if (thresholdElement) {
-        if (liquidationValues.length >= 10 && !isNaN(threshold) && threshold > 0) {
-          thresholdElement.textContent = `$${(threshold / 1000).toFixed(1)}k`;
-        } else {
-          thresholdElement.textContent = '$50k (calibrando...)';
+      const thresh = calculateAverageLiquidation() * 1.5;
+      document.getElementById('huge-threshold').textContent = liquidationValues.length >= 10 ? `$${(thresh/1000).toFixed(1)}k` : '$50k (calibrando...)';
+      const rBar = document.getElementById('ratio-bar');
+      if (rBar) rBar.style.width = total > 0 ? (longTotal/total*100) + '%' : '50%';
+    }
+
+    function connectLiquidationWebSocket() {
+      updateWSLED('connecting');
+      const ws = new WebSocket('wss://fstream.binance.com/ws/!forceOrder@arr');
+      ws.onopen = () => { updateWSLED('connected'); console.log("Liq connected"); };
+      ws.onmessage = event => {
+        const data = JSON.parse(event.data);
+        if (data.o) {
+          updateWSLED(null, true);
+          handleLiquidationData(data.o);
+          if (!updatePending) { updatePending = true; requestAnimationFrame(processRenderQueue); }
         }
-      }
-      
-      const ratioBar = document.getElementById('ratio-bar');
-      if (ratioBar) {
-        const ratioPercent = total > 0 ? (longTotal / total * 100) : 50;
-        ratioBar.style.width = ratioPercent + '%';
-      }
+      };
+      ws.onclose = () => { updateWSLED('reconnecting'); setTimeout(connectLiquidationWebSocket, 1500); };
+      ws.onerror = () => updateWSLED('disconnected');
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-      tickerContent = document.getElementById("ticker");
-      updateWSLED('connecting');
-      initializeTicker();
-      fetchTickerData();
-      setInterval(fetchTickerData, 60000);
+      initializePriceElements();
+      initializePriceWebSockets();
       updateTop3();
       connectLiquidationWebSocket();
-    });
-
-    window.addEventListener('resize', () => {
-      updateTickerMetrics();
     });
   </script>
 </body>
