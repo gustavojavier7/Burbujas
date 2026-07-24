@@ -438,17 +438,17 @@
         <div class="card-title">📊 Estadísticas (Últimas 100 Liq.)</div>
         <div class="stats-row">
           <span class="stats-label">LONG (Ventas Forzadas):</span>
-          <span class="stats-value long-color" id="long-liquidated">$0 (0%)</span>
+          <span class="stats-value short-color" id="long-liquidated">$0 (0%)</span>
         </div>
         <div class="stats-row">
           <span class="stats-label">SHORT (Compras Forzadas):</span>
-          <span class="stats-value short-color" id="short-liquidated">$0 (0%)</span>
+          <span class="stats-value long-color" id="short-liquidated">$0 (0%)</span>
         </div>
         <div class="stats-row">
           <span class="stats-label">Ratio Long/Short:</span>
           <div style="flex: 1; margin: 0 15px;">
             <div style="height: 18px; background: rgba(255,255,255,0.05); border-radius: 9px; overflow: hidden; border: 1px solid var(--border-color);">
-              <div id="ratio-bar" style="height: 100%; width: 50%; background: linear-gradient(90deg, var(--color-long), var(--color-short)); transition: width 1s ease;"></div>
+              <div id="ratio-bar" style="height: 100%; width: 50%; background: linear-gradient(90deg, var(--color-short), var(--color-long)); transition: width 1s ease;"></div>
             </div>
           </div>
           <span class="stats-value highlight" id="ratio-ls">0.00</span>
@@ -700,16 +700,20 @@
       const price = parseFloat(liq.p);
       const qty = parseFloat(liq.q);
       const value = price * qty;
-      const side = (liq.S || 'SELL') === 'SELL' ? 'LONG' : 'SHORT';
+      const side = String(liq.S || 'SELL').toUpperCase();
       const symbol = String(liq.s || 'UNKNOWN');
       const eventTimestamp = Number(liq.T || liq.E);
       const eventDate = Number.isFinite(eventTimestamp) && eventTimestamp > 0
         ? new Date(eventTimestamp)
         : new Date();
-      const time = eventDate.toLocaleTimeString('es-AR', { hour12: false });
-      const amount = value >= 1000 ? `$${(value / 1000).toFixed(1)}k` : `$${value.toFixed(0)}`;
-
-      const text = `[${time}] ${symbol.padEnd(10)} ${side.padEnd(5)}  ${qty.toFixed(3).padStart(8)}  →  ${amount.padStart(8)}  @ ${price.toFixed(2)}`;
+      const eventTime = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23'
+      }).format(eventDate);
+      const text = `[${eventTime} ART]: ${symbol} ${side} ${qty.toFixed(2)} @ ${price.toFixed(6)}`;
 
       return {
         text,
@@ -748,7 +752,7 @@
         const cursor = getTerminalCursor();
         line.className = 'terminal-line';
         if (lineObj.isHuge) line.classList.add('huge');
-        line.classList.add(lineObj.side === 'LONG' ? 'long' : 'short');
+        line.classList.add(lineObj.side === 'BUY' ? 'long' : 'short');
         line.append(textNode, cursor);
         content.appendChild(line);
         setTerminalCursorIdle(false);
@@ -827,7 +831,7 @@
     function triggerHugeVisual(side) {
       const box = document.querySelector('.liquidation-box');
       if (!box) return;
-      box.style.borderColor = side === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
+      box.style.borderColor = side === 'BUY' ? 'var(--color-long)' : 'var(--color-short)';
       setTimeout(() => box.style.borderColor = 'var(--border-color)', 500);
     }
 
@@ -905,7 +909,7 @@
       document.getElementById('ratio-ls').textContent = shortTotal > 0 ? (longTotal/shortTotal).toFixed(2) : '0.00';
       document.getElementById('avg-liquidation').textContent = `$${Number(calculateAverageLiquidation().toFixed(0)).toLocaleString()}`;
       document.getElementById('largest-liquidation').textContent = largestLiquidation.amount > 0 ? `$${(largestLiquidation.amount/1000).toFixed(1)}k ${largestLiquidation.symbol}` : '-';
-      document.getElementById('largest-liquidation').className = 'stats-value ' + (largestLiquidation.side === 'SELL' ? 'long-color' : 'short-color');
+      document.getElementById('largest-liquidation').className = 'stats-value ' + (largestLiquidation.side === 'BUY' ? 'long-color' : 'short-color');
       document.getElementById('total-count').textContent = liquidations.length;
       const thresh = calculateAverageLiquidation() * 1.5;
       document.getElementById('huge-threshold').textContent = liquidations.length >= 10 ? `$${(thresh/1000).toFixed(1)}k` : '$50k (calibrando...)';
