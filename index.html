@@ -348,6 +348,43 @@
 
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
+
+    /* --- SWITCH ESTADÍSTICAS / CORRELACIÓN --- */
+    .panel-switch { display: inline-flex; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; }
+    .panel-switch button {
+      font-family: 'Inter', sans-serif; font-size: 0.6em; font-weight: 600; letter-spacing: 0.5px;
+      text-transform: uppercase; padding: 5px 10px; border: 0; cursor: pointer;
+      background: transparent; color: var(--text-muted); transition: background 0.2s, color 0.2s;
+    }
+    .panel-switch button.active { background: var(--color-accent); color: #0f172a; }
+    .panel-hidden { display: none; }
+
+    /* --- PANEL DE CORRELACIÓN --- */
+    .corr-rho { font-family: 'JetBrains Mono', monospace; font-size: 2.8em; font-weight: 700; text-align: center; line-height: 1; margin: 4px 0 2px; letter-spacing: -1px; transition: color 0.4s ease; }
+    .corr-rho-label { text-align: center; color: var(--text-muted); font-size: 0.66em; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 14px; }
+    .corr-gauge { position: relative; height: 28px; margin: 0 2px 6px; border-radius: 6px; background: linear-gradient(90deg, rgba(239,68,68,.12), rgba(148,163,184,.05) 50%, rgba(16,185,129,.12)); border: 1px solid var(--border-color); overflow: hidden; }
+    .corr-gauge-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--text-muted); opacity: .5; }
+    .corr-gauge-fill { position: absolute; top: 3px; bottom: 3px; border-radius: 4px; transition: left 0.5s, width 0.5s, background 0.4s; }
+    .corr-ticks { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 0.58em; color: var(--text-muted); margin: 0 2px 16px; }
+    .corr-metrics { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+    .corr-metric { background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 6px; text-align: center; }
+    .corr-metric .v { font-family: 'JetBrains Mono', monospace; font-size: 1.1em; font-weight: 700; }
+    .corr-metric .k { color: var(--text-muted); font-size: 0.56em; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+    .corr-live-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.64em; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin: 14px 0 8px; border-top: 1px solid var(--border-color); padding-top: 12px; }
+    .corr-live-head .cd { font-family: 'JetBrains Mono', monospace; color: var(--color-accent); }
+    .corr-ldi-bar { position: relative; height: 18px; border-radius: 6px; overflow: hidden; background: #0c0c0c; border: 1px solid var(--border-color); display: flex; }
+    .corr-ldi-sell { background: var(--color-short); height: 100%; transition: width 0.3s; }
+    .corr-ldi-buy { background: var(--color-long); height: 100%; transition: width 0.3s; }
+    .corr-live-nums { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 0.66em; margin-top: 6px; }
+    .corr-live-nums .down-c { color: var(--color-short); }
+    .corr-live-nums .up-c { color: var(--color-long); }
+    .corr-ret { text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 0.72em; margin-top: 6px; color: var(--text-muted); }
+    .corr-hist-label { color: var(--text-muted); font-size: 0.56em; text-transform: uppercase; letter-spacing: 1px; margin: 14px 0 6px; }
+    .corr-hist { display: flex; gap: 2px; height: 22px; align-items: flex-end; }
+    .corr-hist span { flex: 1; min-width: 0; border-radius: 1px; opacity: 0.85; }
+    .corr-hist .agree { background: #00ff41; }
+    .corr-hist .disagree { background: #ff5f56; }
+    .corr-hist .flat { background: var(--border-color); }
   </style>
 </head>
 <body>
@@ -433,9 +470,16 @@
         </div>
       </div>
 
-      <!-- ESTADÍSTICAS -->
+      <!-- ESTADÍSTICAS / CORRELACIÓN -->
       <div class="card">
-        <div class="card-title">📊 Estadísticas (Últimas 100 Liq.)</div>
+        <div class="card-title">
+          <span id="panel-heading">📊 Estadísticas (Últimas 100 Liq.)</span>
+          <span class="panel-switch">
+            <button id="btn-stats" class="active" type="button">Liquidaciones</button>
+            <button id="btn-corr" type="button">Correlación</button>
+          </span>
+        </div>
+        <div id="stats-panel">
         <div class="stats-row">
           <span class="stats-label">LONG (Ventas Forzadas):</span>
           <span class="stats-value short-color" id="long-liquidated">$0 (0%)</span>
@@ -468,6 +512,25 @@
         <div class="stats-row">
           <span class="stats-label">Total Eventos:</span>
           <span class="stats-value" id="total-count">0</span>
+        </div>
+        </div><!-- /#stats-panel -->
+
+        <div id="corr-panel" class="panel-hidden">
+          <div id="corr-rho" class="corr-rho">—</div>
+          <div class="corr-rho-label">ρ Spearman · ventana móvil</div>
+          <div class="corr-gauge"><div class="corr-gauge-center"></div><div id="corr-fill" class="corr-gauge-fill"></div></div>
+          <div class="corr-ticks"><span>−1</span><span>−.5</span><span>0</span><span>+.5</span><span>+1</span></div>
+          <div class="corr-metrics">
+            <div class="corr-metric"><div id="corr-agree" class="v">—</div><div class="k">acuerdo signo</div></div>
+            <div class="corr-metric"><div id="corr-pearson" class="v">—</div><div class="k">Pearson r</div></div>
+            <div class="corr-metric"><div id="corr-n" class="v">0</div><div class="k">barras act.</div></div>
+          </div>
+          <div class="corr-live-head"><span>barra en formación</span><span class="cd">cierre en <span id="corr-cd">30</span>s</span></div>
+          <div class="corr-ldi-bar"><div id="corr-ldi-sell" class="corr-ldi-sell" style="width:50%"></div><div id="corr-ldi-buy" class="corr-ldi-buy" style="width:50%"></div></div>
+          <div class="corr-live-nums"><span class="down-c">SELL (longs) <span id="corr-sell-v">$0</span></span><span class="up-c"><span id="corr-buy-v">$0</span> BUY (shorts)</span></div>
+          <div class="corr-ret">Δprecio barra: <span id="corr-ret-v">+0.000%</span></div>
+          <div class="corr-hist-label">acuerdo de signo por barra (reciente →)</div>
+          <div id="corr-hist" class="corr-hist"></div>
         </div>
       </div>
 
@@ -591,7 +654,10 @@
           try {
             const data = JSON.parse(event.data);
             const price = processData(data);
-            if (price && !isNaN(price)) updatePriceColor(key, price);
+            if (price && !isNaN(price)) {
+              updatePriceColor(key, price);
+              if (key === 'binanceRealtime') recordPrice(price);
+            }
           } catch (err) {
             logToConsole(`${key}: mensaje inválido (${err.message}).`, 'error');
           }
@@ -808,6 +874,7 @@
       const side = liquidation.S || 'SELL';
       liquidations.unshift({ symbol, price, quantity, side, value: liqValue });
       if (liquidations.length > MAX_LIQUIDATIONS_MEMORY) liquidations.pop();
+      recordLiquidation(liqValue, side);
 
       const lineObj = formatLiquidationLine(liquidation);
       recentLiquidations.push({
@@ -971,11 +1038,169 @@
       connect();
     }
 
+    /* ===================== MOTOR DE CORRELACIÓN LIQ · BTC ===================== */
+    const CORR_BAR_MS       = 30000;   // tamaño de barra (30 s)
+    const CORR_WINDOW       = 60;      // barras en la ventana móvil (30 min)
+    const CORR_MIN_NOTIONAL = 20000;   // USD mínimo de liquidaciones para que la barra cuente
+    const CORR_MIN_N        = 8;       // muestra mínima para publicar ρ
+
+    let corrBuy = 0, corrSell = 0;                 // notional USD acumulado en la barra actual
+    let corrBarOpen = null, corrBarLast = null;    // precio apertura / último de la barra
+    let corrBarStart = Date.now();
+    const corrPairs = [];                          // [{ldi, ret}] activas, máx CORR_WINDOW
+
+    // BUY = short liquidado → presión alcista (+) ; SELL = long liquidado → presión bajista (−)
+    function recordLiquidation(valueUsd, side) {
+      if (!Number.isFinite(valueUsd)) return;
+      if (side === 'BUY') corrBuy += valueUsd; else corrSell += valueUsd;
+    }
+    function recordPrice(p) {
+      p = +p;
+      if (!Number.isFinite(p)) return;
+      if (corrBarOpen === null) corrBarOpen = p;
+      corrBarLast = p;
+    }
+
+    function corrCloseBar() {
+      let ret = null;
+      if (corrBarOpen !== null && corrBarLast !== null && corrBarOpen > 0) {
+        ret = Math.log(corrBarLast / corrBarOpen);
+      }
+      const total = corrBuy + corrSell;
+      if (ret !== null && total >= CORR_MIN_NOTIONAL) {
+        corrPairs.push({ ldi: (corrBuy - corrSell) / total, ret });
+        if (corrPairs.length > CORR_WINDOW) corrPairs.shift();
+      }
+      corrBuy = corrSell = 0;
+      corrBarOpen = corrBarLast;      // continuidad close → open
+      corrBarStart = Date.now();
+      corrRecompute();
+    }
+
+    function corrRanks(arr) {
+      const idx = arr.map((v, i) => [v, i]).sort((a, b) => a[0] - b[0]);
+      const r = new Array(arr.length);
+      let i = 0;
+      while (i < idx.length) {
+        let j = i;
+        while (j + 1 < idx.length && idx[j + 1][0] === idx[i][0]) j++;
+        const avg = (i + j) / 2 + 1;   // rango promedio en empates
+        for (let k = i; k <= j; k++) r[idx[k][1]] = avg;
+        i = j + 1;
+      }
+      return r;
+    }
+    function corrPearson(a, b) {
+      const n = a.length;
+      if (n < 2) return null;
+      let sa = 0, sb = 0;
+      for (let i = 0; i < n; i++) { sa += a[i]; sb += b[i]; }
+      const ma = sa / n, mb = sb / n;
+      let num = 0, da = 0, db = 0;
+      for (let i = 0; i < n; i++) { const xa = a[i] - ma, xb = b[i] - mb; num += xa * xb; da += xa * xa; db += xb * xb; }
+      if (da === 0 || db === 0) return null;
+      return num / Math.sqrt(da * db);
+    }
+    function corrSpearman(x, y) {
+      if (x.length < CORR_MIN_N) return null;
+      return corrPearson(corrRanks(x), corrRanks(y));
+    }
+    function corrFmtUsd(v) { return v >= 1000 ? '$' + (v / 1000).toFixed(1) + 'k' : '$' + v.toFixed(0); }
+
+    function corrRecompute() {
+      const ldis = corrPairs.map(p => p.ldi);
+      const rets = corrPairs.map(p => p.ret);
+      const rho  = corrSpearman(ldis, rets);
+      const r    = corrPairs.length >= CORR_MIN_N ? corrPearson(ldis, rets) : null;
+
+      let agree = 0, valid = 0;
+      for (const p of corrPairs) {
+        if (Math.abs(p.ldi) < 1e-9 || Math.abs(p.ret) < 1e-9) continue;
+        valid++;
+        if (Math.sign(p.ldi) === Math.sign(p.ret)) agree++;
+      }
+      const agreePct = valid > 0 ? (agree / valid * 100) : null;
+
+      const rhoEl = document.getElementById('corr-rho');
+      const fill  = document.getElementById('corr-fill');
+      if (!rhoEl || !fill) return;
+      if (rho === null) {
+        rhoEl.textContent = '—';
+        rhoEl.style.color = 'var(--text-muted)';
+        fill.style.width = '0%';
+      } else {
+        rhoEl.textContent = (rho >= 0 ? '+' : '') + rho.toFixed(2);
+        const col = rho >= 0 ? 'var(--color-long)' : 'var(--color-short)';
+        rhoEl.style.color = col;
+        fill.style.background = col;
+        const w = Math.abs(rho) * 50;
+        fill.style.width = w + '%';
+        fill.style.left  = (rho >= 0 ? 50 : 50 - w) + '%';
+      }
+      document.getElementById('corr-agree').textContent   = agreePct === null ? '—' : agreePct.toFixed(0) + '%';
+      document.getElementById('corr-pearson').textContent = r === null ? '—' : (r >= 0 ? '+' : '') + r.toFixed(2);
+      document.getElementById('corr-n').textContent       = corrPairs.length;
+
+      const hist = document.getElementById('corr-hist');
+      hist.replaceChildren();
+      for (const p of corrPairs) {
+        const s = document.createElement('span');
+        let cls = 'flat', h = 40;
+        if (Math.abs(p.ldi) > 1e-9 && Math.abs(p.ret) > 1e-9) {
+          cls = Math.sign(p.ldi) === Math.sign(p.ret) ? 'agree' : 'disagree';
+          h = 60 + Math.min(40, Math.abs(p.ldi) * 40);
+        }
+        s.className = cls;
+        s.style.height = h + '%';
+        hist.appendChild(s);
+      }
+    }
+
+    function corrTick() {
+      const elapsed = Date.now() - corrBarStart;
+      if (elapsed >= CORR_BAR_MS) { corrCloseBar(); return; }
+      const cd = document.getElementById('corr-cd');
+      if (cd) cd.textContent = Math.max(0, Math.ceil((CORR_BAR_MS - elapsed) / 1000));
+
+      const total = corrBuy + corrSell;
+      const sellPct = total > 0 ? corrSell / total * 100 : 50;
+      document.getElementById('corr-ldi-sell').style.width = sellPct + '%';
+      document.getElementById('corr-ldi-buy').style.width  = (100 - sellPct) + '%';
+      document.getElementById('corr-sell-v').textContent = corrFmtUsd(corrSell);
+      document.getElementById('corr-buy-v').textContent  = corrFmtUsd(corrBuy);
+
+      let ret = 0;
+      if (corrBarOpen && corrBarLast && corrBarOpen > 0) ret = (corrBarLast / corrBarOpen - 1) * 100;
+      const rEl = document.getElementById('corr-ret-v');
+      rEl.textContent = (ret >= 0 ? '+' : '') + ret.toFixed(3) + '%';
+      rEl.style.color = ret > 0 ? 'var(--color-long)' : ret < 0 ? 'var(--color-short)' : 'var(--text-muted)';
+    }
+
+    function startCorrelationEngine() {
+      setInterval(corrTick, 1000);
+      const bs = document.getElementById('btn-stats');
+      const bc = document.getElementById('btn-corr');
+      const sp = document.getElementById('stats-panel');
+      const cp = document.getElementById('corr-panel');
+      const h  = document.getElementById('panel-heading');
+      bs.addEventListener('click', () => {
+        sp.classList.remove('panel-hidden'); cp.classList.add('panel-hidden');
+        bs.classList.add('active'); bc.classList.remove('active');
+        h.textContent = '📊 Estadísticas (Últimas 100 Liq.)';
+      });
+      bc.addEventListener('click', () => {
+        cp.classList.remove('panel-hidden'); sp.classList.add('panel-hidden');
+        bc.classList.add('active'); bs.classList.remove('active');
+        h.textContent = '🔗 Correlación Liq · BTC (30s)';
+      });
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
       initializePriceElements();
       initializePriceWebSockets();
       updateTop3();
       connectLiquidationWebSocket();
+      startCorrelationEngine();
     });
   </script>
 </body>
