@@ -250,12 +250,8 @@
     .terminal-line.long { color: #00ff41; }
     .terminal-line.short { color: #ff5f56; }
     .terminal-line.huge {
-      color: #ffb000;
       font-weight: bold;
-    }
-    .terminal-prompt {
-      color: #00ff41;
-      margin-top: 8px;
+      text-shadow: 0 0 8px currentColor;
     }
     .cursor {
       display: inline-block;
@@ -264,6 +260,9 @@
       background: #00ff41;
       margin-left: 2px;
       vertical-align: text-bottom;
+      opacity: 1;
+    }
+    .cursor.idle {
       animation: blink 1s step-end infinite;
     }
     @keyframes blink {
@@ -371,8 +370,7 @@
 
         <div class="terminal-body" id="liquidation-content">
           <div class="terminal-line">root@liq-term:~# ./monitor --stream forceOrder</div>
-          <div class="terminal-line">Waiting for liquidations...</div>
-          <div class="terminal-prompt">root@liq-term:~# <span class="cursor"></span></div>
+          <div class="terminal-line">Waiting for liquidations...<span class="cursor idle" id="terminal-cursor" aria-hidden="true"></span></div>
         </div>
       </div>
 
@@ -690,12 +688,12 @@
       const theoreticalCps = totalCharsRecent / (RECENT_WINDOW_MS / 1000);
       const queueLength = typingQueue.length;
 
-      // Velocidad base de novato cuando la actividad es baja.
-      if (queueLength <= 1) return 3;
+      // Velocidad base cuando la actividad es baja.
+      if (queueLength <= 1) return 5;
 
       // La tasa reciente marca el ritmo y la cola añade presión de ráfaga.
       const speed = theoreticalCps * 1.6 + queueLength * 3.5;
-      return Math.max(3, Math.min(speed, 90));
+      return Math.max(5, Math.min(speed, 90));
     }
 
     function formatLiquidationLine(liq) {
@@ -721,26 +719,45 @@
       };
     }
 
+    function getTerminalCursor() {
+      let cursor = document.getElementById('terminal-cursor');
+      if (!cursor) {
+        cursor = document.createElement('span');
+        cursor.id = 'terminal-cursor';
+        cursor.className = 'cursor idle';
+        cursor.setAttribute('aria-hidden', 'true');
+        document.getElementById('liquidation-content')?.appendChild(cursor);
+      }
+      return cursor;
+    }
+
+    function setTerminalCursorIdle(isIdle) {
+      getTerminalCursor().classList.toggle('idle', isIdle);
+    }
+
     function typeLine(lineObj) {
       return new Promise(resolve => {
         const content = document.getElementById('liquidation-content');
-        const prompt = content?.querySelector('.terminal-prompt');
-        if (!content || !prompt) {
+        if (!content) {
           resolve();
           return;
         }
 
         const line = document.createElement('div');
+        const textNode = document.createTextNode('');
+        const cursor = getTerminalCursor();
         line.className = 'terminal-line';
         if (lineObj.isHuge) line.classList.add('huge');
         line.classList.add(lineObj.side === 'LONG' ? 'long' : 'short');
-        content.insertBefore(line, prompt);
+        line.append(textNode, cursor);
+        content.appendChild(line);
+        setTerminalCursorIdle(false);
 
         let index = 0;
 
         function typeChar() {
           if (index < lineObj.text.length) {
-            line.textContent += lineObj.text[index];
+            textNode.data += lineObj.text[index];
             index++;
             content.scrollTop = content.scrollHeight;
 
@@ -762,6 +779,7 @@
     async function processTypingQueue() {
       if (isTyping || typingQueue.length === 0) return;
       isTyping = true;
+      setTerminalCursorIdle(false);
 
       while (typingQueue.length > 0) {
         const line = typingQueue.shift();
@@ -771,6 +789,7 @@
       }
 
       isTyping = false;
+      setTerminalCursorIdle(true);
     }
 
     function handleLiquidationData(liquidation) {
@@ -886,7 +905,7 @@
       document.getElementById('ratio-ls').textContent = shortTotal > 0 ? (longTotal/shortTotal).toFixed(2) : '0.00';
       document.getElementById('avg-liquidation').textContent = `$${Number(calculateAverageLiquidation().toFixed(0)).toLocaleString()}`;
       document.getElementById('largest-liquidation').textContent = largestLiquidation.amount > 0 ? `$${(largestLiquidation.amount/1000).toFixed(1)}k ${largestLiquidation.symbol}` : '-';
-      document.getElementById('largest-liquidation').className = 'stats-value highlight ' + (largestLiquidation.side === 'SELL' ? 'long-color' : 'short-color');
+      document.getElementById('largest-liquidation').className = 'stats-value ' + (largestLiquidation.side === 'SELL' ? 'long-color' : 'short-color');
       document.getElementById('total-count').textContent = liquidations.length;
       const thresh = calculateAverageLiquidation() * 1.5;
       document.getElementById('huge-threshold').textContent = liquidations.length >= 10 ? `$${(thresh/1000).toFixed(1)}k` : '$50k (calibrando...)';
