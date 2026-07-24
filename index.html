@@ -47,6 +47,12 @@
     @media (min-width: 850px) {
       .dashboard-grid { grid-template-columns: 1.5fr 1fr; }
     }
+    .left-column {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      min-width: 0;
+    }
 
     .card {
       background-color: var(--card-bg);
@@ -254,27 +260,64 @@
     .stats-label { color: var(--text-muted); }
     .stats-value { font-weight: bold; text-align: right; }
 
-    /* --- TOP 3 MONEDAS --- */
-    .top-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
-      margin-bottom: 8px;
-      background: rgba(255,255,255,0.03);
-      border-radius: 8px;
-      border-left: 4px solid var(--color-accent);
+    /* --- MINI TERMINAL TOP 3 --- */
+    .mini-terminal {
+      overflow: hidden;
+      background: #0c0c0c;
+      border: 1px solid #333;
+      border-radius: 12px;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
       font-family: 'JetBrains Mono', monospace;
-      font-size: 0.85em;
     }
-    .top-item div {
+    .mini-terminal .terminal-header {
+      min-height: 38px;
+      padding: 8px 14px;
+    }
+    .mini-terminal-body {
+      display: grid;
+      grid-template-rows: repeat(3, 1fr);
+      min-height: 108px;
+      padding: 8px 14px;
+      color: #00ff41;
+    }
+    .mini-terminal-line {
       display: flex;
-      flex-direction: column;
-      gap: 2px;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      font-size: 0.82em;
+      line-height: 1.25;
     }
-    .top-item .top-symbol { font-weight: bold; font-size: 1em; }
-    .top-item .top-detail { color: var(--text-muted); font-size: 0.8em; }
+    .mini-terminal-line:last-child { border-bottom: 0; }
+    .mini-terminal-rank {
+      width: 24px;
+      flex: 0 0 24px;
+      color: #ffb000;
+      font-weight: 700;
+    }
+    .mini-terminal-symbol {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      color: #00ff41;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .mini-terminal-count {
+      flex: 0 0 auto;
+      color: #888;
+    }
+    .mini-terminal-average {
+      flex: 0 0 92px;
+      color: #e6e6e6;
+      text-align: right;
+    }
+    .mini-terminal-empty {
+      color: #555;
+      font-weight: 400;
+    }
 
     .long-color { color: var(--color-long) !important; }
     .short-color { color: var(--color-short) !important; }
@@ -286,25 +329,44 @@
 </head>
 <body>
   <div class="dashboard-grid">
-    <!-- CAJA DE LIQUIDACIONES - TERMINAL -->
-    <div class="card liquidation-box">
-      <div class="terminal-header">
-        <div class="terminal-dots">
-          <div class="terminal-dot red"></div>
-          <div class="terminal-dot yellow"></div>
-          <div class="terminal-dot green"></div>
+    <div class="left-column">
+      <!-- CAJA DE LIQUIDACIONES - TERMINAL -->
+      <div class="card liquidation-box">
+        <div class="terminal-header">
+          <div class="terminal-dots">
+            <div class="terminal-dot red"></div>
+            <div class="terminal-dot yellow"></div>
+            <div class="terminal-dot green"></div>
+          </div>
+          <div class="terminal-title">liquidation-monitor — bash</div>
+          <div class="ws-led-container">
+            <div id="ws-led" class="ws-led"></div>
+            <span id="ws-status">Connecting...</span>
+          </div>
         </div>
-        <div class="terminal-title">liquidation-monitor — bash</div>
-        <div class="ws-led-container">
-          <div id="ws-led" class="ws-led"></div>
-          <span id="ws-status">Connecting...</span>
+
+        <div class="terminal-body" id="liquidation-content">
+          <div class="terminal-line">root@liq-term:~# ./monitor --stream forceOrder</div>
+          <div class="terminal-line">Waiting for liquidations...</div>
+          <div class="terminal-prompt">root@liq-term:~# <span class="cursor"></span></div>
         </div>
       </div>
 
-      <div class="terminal-body" id="liquidation-content">
-        <div class="terminal-line">root@liq-term:~# ./monitor --stream forceOrder</div>
-        <div class="terminal-line">Waiting for liquidations...</div>
-        <div class="terminal-prompt">root@liq-term:~# <span class="cursor"></span></div>
+      <!-- MINI TERMINAL TOP 3 -->
+      <div class="mini-terminal" id="top-liquidated-container">
+        <div class="terminal-header">
+          <div class="terminal-dots">
+            <div class="terminal-dot red"></div>
+            <div class="terminal-dot yellow"></div>
+            <div class="terminal-dot green"></div>
+          </div>
+          <div class="terminal-title">top-liquidated-pairs — watch</div>
+        </div>
+        <div class="mini-terminal-body" id="top-liquidated-content">
+          <div class="mini-terminal-line mini-terminal-empty">Waiting for liquidation data...</div>
+          <div class="mini-terminal-line mini-terminal-empty">—</div>
+          <div class="mini-terminal-line mini-terminal-empty">—</div>
+        </div>
       </div>
     </div>
 
@@ -384,13 +446,6 @@
         </div>
       </div>
 
-      <!-- TOP 3 -->
-      <div class="card" id="top-liquidated-container">
-        <div class="card-title">🔥 Top 3 Más Liquidadas</div>
-        <div id="top-liquidated-content">
-          <span style="color: var(--text-muted); font-size: 0.9em;">Esperando datos...</span>
-        </div>
-      </div>
     </div>
   </div>
 
@@ -408,6 +463,8 @@
     let currentTop3 = [];
     let typingQueue = [];
     let isTyping = false;
+    const RECENT_WINDOW_MS = 7500;
+    let recentLiquidations = [];
 
     // --- NUEVO: PANELES DE PRECIOS EN TIEMPO REAL ---
     const preciosAnteriores = {};
@@ -537,6 +594,28 @@
       }
     }
 
+    function getCurrentTypingSpeed() {
+      const now = Date.now();
+
+      recentLiquidations = recentLiquidations.filter(
+        liquidation => now - liquidation.ts < RECENT_WINDOW_MS
+      );
+
+      const totalCharsRecent = recentLiquidations.reduce(
+        (sum, liquidation) => sum + liquidation.chars,
+        0
+      );
+      const theoreticalCps = totalCharsRecent / (RECENT_WINDOW_MS / 1000);
+      const queueLength = typingQueue.length;
+
+      // Velocidad base de novato cuando la actividad es baja.
+      if (queueLength <= 1) return 2;
+
+      // La tasa reciente marca el ritmo y la cola añade presión de ráfaga.
+      const speed = theoreticalCps * 1.6 + queueLength * 3.5;
+      return Math.max(2, Math.min(speed, 90));
+    }
+
     function formatLiquidationLine(liq) {
       const price = parseFloat(liq.p);
       const qty = parseFloat(liq.q);
@@ -546,10 +625,13 @@
       const time = new Date().toLocaleTimeString('es-AR', { hour12: false });
       const amount = value >= 1000 ? `$${(value / 1000).toFixed(1)}k` : `$${value.toFixed(0)}`;
 
+      const text = `[${time}] ${symbol.padEnd(10)} ${side.padEnd(5)}  ${qty.toFixed(3).padStart(8)}  →  ${amount.padStart(8)}  @ ${price.toFixed(2)}`;
+
       return {
-        text: `[${time}] ${symbol.padEnd(10)} ${side.padEnd(5)}  ${qty.toFixed(3).padStart(8)}  →  ${amount.padStart(8)}  @ ${price.toFixed(2)}`,
+        text,
         isHuge: isHugeLiquidation(value),
-        side
+        side,
+        chars: text.length
       };
     }
 
@@ -569,14 +651,15 @@
         content.insertBefore(line, prompt);
 
         let index = 0;
-        const speed = lineObj.isHuge ? 12 : 18;
 
         function typeChar() {
           if (index < lineObj.text.length) {
             line.textContent += lineObj.text[index];
             index++;
             content.scrollTop = content.scrollHeight;
-            setTimeout(typeChar, speed);
+
+            const charactersPerSecond = getCurrentTypingSpeed();
+            setTimeout(typeChar, 1000 / charactersPerSecond);
             return;
           }
 
@@ -597,7 +680,8 @@
       while (typingQueue.length > 0) {
         const line = typingQueue.shift();
         await typeLine(line);
-        await new Promise(resolve => setTimeout(resolve, 80));
+        const pause = Math.max(30, 120 / Math.max(1, typingQueue.length));
+        await new Promise(resolve => setTimeout(resolve, pause));
       }
 
       isTyping = false;
@@ -632,6 +716,10 @@
       if (liquidations.length > MAX_LIQUIDATIONS_MEMORY) liquidations.pop();
 
       const lineObj = formatLiquidationLine(liquidation);
+      recentLiquidations.push({
+        ts: Date.now(),
+        chars: lineObj.chars
+      });
       typingQueue.push(lineObj);
 
       if (lineObj.isHuge) triggerHugeAlert(side);
@@ -654,13 +742,47 @@
       currentTop3 = top.map(([s]) => s);
       const content = document.getElementById('top-liquidated-content');
       if (!content) return;
-      content.innerHTML = top.length === 0 ? '<span style="color: var(--text-muted); font-size: 0.9em;">Esperando datos...</span>' : '';
-      top.forEach(([symbol, data], index) => {
-        const item = document.createElement('div');
-        item.className = 'top-item';
-        item.innerHTML = `<div style="flex:1;min-width:0;"><span class="top-symbol">${index+1}. ${symbol}</span><span class="top-detail">${data.count} liq.</span></div><div style="text-align:right;"><span style="font-family:'JetBrains Mono';font-weight:bold;">$${(data.total/data.count).toFixed(2)}</span><span class="top-detail">prom.</span></div>`;
-        content.appendChild(item);
-      });
+      content.replaceChildren();
+
+      for (let index = 0; index < 3; index++) {
+        const entry = top[index];
+        const line = document.createElement('div');
+        line.className = 'mini-terminal-line';
+
+        const rank = document.createElement('span');
+        rank.className = 'mini-terminal-rank';
+        rank.textContent = `#${index + 1}`;
+        line.appendChild(rank);
+
+        const symbol = document.createElement('span');
+        symbol.className = 'mini-terminal-symbol';
+
+        if (entry) {
+          const [pair, data] = entry;
+          const average = data.total / data.count;
+          const averageText = average >= 1000
+            ? `$${(average / 1000).toFixed(1)}k avg`
+            : `$${average.toFixed(0)} avg`;
+
+          symbol.textContent = pair;
+
+          const count = document.createElement('span');
+          count.className = 'mini-terminal-count';
+          count.textContent = `${data.count} liq.`;
+
+          const averageValue = document.createElement('span');
+          averageValue.className = 'mini-terminal-average';
+          averageValue.textContent = averageText;
+
+          line.append(symbol, count, averageValue);
+        } else {
+          line.classList.add('mini-terminal-empty');
+          symbol.textContent = index === 0 ? 'Waiting for data...' : '—';
+          line.appendChild(symbol);
+        }
+
+        content.appendChild(line);
+      }
     }
 
     function updateStatsPanel() {
