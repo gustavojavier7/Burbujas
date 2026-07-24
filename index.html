@@ -152,50 +152,92 @@
     .price.up { color: var(--color-long); }
     .price.down { color: var(--color-short); }
 
-    /* --- CAJA DE LIQUIDACIONES --- */
-    .liquidation-box { height: 600px; position: relative; }
-    .liquidation-header {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.85em;
-      color: var(--text-muted);
-      padding-bottom: 10px;
-      margin-bottom: 10px;
-      border-bottom: 1px solid var(--border-color);
-      font-weight: 600;
-      text-transform: uppercase;
-    }
-    .liquidation-header span { flex: 1; }
-    .liquidation-header span:nth-child(2) { text-align: center; }
-    .liquidation-header span:nth-child(3) { text-align: right; }
-    .liquidation-content {
-      overflow-y: auto;
-      height: calc(100% - 40px);
-      display: flex;
-      flex-direction: column;
-    }
-    @keyframes slideIn {
-      from { opacity: 0; transform: translateY(-10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    .liquidation-item {
-      display: flex;
-      justify-content: space-between;
-      padding: 8px 0;
-      border-bottom: 1px solid rgba(255,255,255,0.03);
+    /* --- TERMINAL DE LIQUIDACIONES --- */
+    .liquidation-box {
+      height: 600px;
+      position: relative;
+      padding: 0;
+      overflow: hidden;
+      background: #0c0c0c;
+      border: 1px solid #333;
       font-family: 'JetBrains Mono', monospace;
-      font-size: 0.95em;
-      animation: slideIn 0.3s ease-out;
     }
-    .liquidation-item span { flex: 1; }
-    .liquidation-item span:nth-child(2) { text-align: center; }
-    .liquidation-item span:nth-child(3) { text-align: right; font-weight: bold; }
-    .liquidation-item.huge {
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #1a1a1a;
+      padding: 10px 14px;
+      border-bottom: 1px solid #333;
+      user-select: none;
+    }
+    .terminal-dots {
+      display: flex;
+      gap: 6px;
+    }
+    .terminal-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    .terminal-dot.red { background: #ff5f56; }
+    .terminal-dot.yellow { background: #ffbd2e; }
+    .terminal-dot.green { background: #27c93f; }
+    .terminal-title {
+      flex: 1;
+      text-align: center;
+      font-size: 0.8em;
+      color: #888;
+      letter-spacing: 0.5px;
+    }
+    .terminal-header .ws-led-container {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75em;
+      color: #666;
+    }
+    .terminal-body {
+      height: calc(100% - 42px);
+      overflow-y: auto;
+      padding: 12px 16px;
+      color: #00ff41;
+      font-size: 0.9em;
+      line-height: 1.45;
+      scrollbar-width: thin;
+      scrollbar-color: #333 transparent;
+    }
+    .terminal-body::-webkit-scrollbar { width: 6px; }
+    .terminal-body::-webkit-scrollbar-thumb {
+      background: #333;
+      border-radius: 3px;
+    }
+    .terminal-line {
+      white-space: pre;
+      margin-bottom: 2px;
+      opacity: 0.95;
+    }
+    .terminal-line.long { color: #00ff41; }
+    .terminal-line.short { color: #ff5f56; }
+    .terminal-line.huge {
+      color: #ffb000;
       font-weight: bold;
-      font-size: 1.05em;
-      background: rgba(234, 179, 8, 0.1);
-      border-left: 3px solid var(--color-accent);
-      padding-left: 8px;
+    }
+    .terminal-prompt {
+      color: #00ff41;
+      margin-top: 8px;
+    }
+    .cursor {
+      display: inline-block;
+      width: 8px;
+      height: 1.1em;
+      background: #00ff41;
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink {
+      50% { opacity: 0; }
     }
 
     /* --- ESTADÍSTICAS --- */
@@ -244,22 +286,25 @@
 </head>
 <body>
   <div class="dashboard-grid">
-    <!-- CAJA DE LIQUIDACIONES -->
+    <!-- CAJA DE LIQUIDACIONES - TERMINAL -->
     <div class="card liquidation-box">
-      <div class="card-title">
-        <span>🔴 Liquidaciones en Vivo (Futuros)</span>
+      <div class="terminal-header">
+        <div class="terminal-dots">
+          <div class="terminal-dot red"></div>
+          <div class="terminal-dot yellow"></div>
+          <div class="terminal-dot green"></div>
+        </div>
+        <div class="terminal-title">liquidation-monitor — bash</div>
         <div class="ws-led-container">
           <div id="ws-led" class="ws-led"></div>
-          <span id="ws-status">Conectando...</span>
+          <span id="ws-status">Connecting...</span>
         </div>
       </div>
-      <div class="liquidation-header">
-        <span>Símbolo</span>
-        <span>Precio</span>
-        <span>Cantidad</span>
-      </div>
-      <div class="liquidation-content" id="liquidation-content">
-        <!-- JS inyecta aquí -->
+
+      <div class="terminal-body" id="liquidation-content">
+        <div class="terminal-line">root@liq-term:~# ./monitor --stream forceOrder</div>
+        <div class="terminal-line">Waiting for liquidations...</div>
+        <div class="terminal-prompt">root@liq-term:~# <span class="cursor"></span></div>
       </div>
     </div>
 
@@ -350,9 +395,8 @@
   </div>
 
   <script>
-    const MAX_LIQUIDATIONS = 50;
     const MAX_LIQUIDATIONS_MEMORY = 100;
-    const MAX_LIQUIDATIONS_PER_FRAME = 30;
+    const MAX_TERMINAL_LINES = 80;
 
     // --- ESTADO GLOBAL ---
     let liquidations = [];
@@ -362,8 +406,8 @@
     let shortTotal = 0;
     let largestLiquidation = { amount: 0, symbol: '', side: '' };
     let currentTop3 = [];
-    let updatePending = false;
-    let renderQueue = [];
+    let typingQueue = [];
+    let isTyping = false;
 
     // --- NUEVO: PANELES DE PRECIOS EN TIEMPO REAL ---
     const preciosAnteriores = {};
@@ -493,54 +537,108 @@
       }
     }
 
+    function formatLiquidationLine(liq) {
+      const price = parseFloat(liq.p);
+      const qty = parseFloat(liq.q);
+      const value = price * qty;
+      const side = (liq.S || 'SELL') === 'SELL' ? 'LONG' : 'SHORT';
+      const symbol = String(liq.s || 'UNKNOWN');
+      const time = new Date().toLocaleTimeString('es-AR', { hour12: false });
+      const amount = value >= 1000 ? `$${(value / 1000).toFixed(1)}k` : `$${value.toFixed(0)}`;
+
+      return {
+        text: `[${time}] ${symbol.padEnd(10)} ${side.padEnd(5)}  ${qty.toFixed(3).padStart(8)}  →  ${amount.padStart(8)}  @ ${price.toFixed(2)}`,
+        isHuge: isHugeLiquidation(value),
+        side
+      };
+    }
+
+    function typeLine(lineObj) {
+      return new Promise(resolve => {
+        const content = document.getElementById('liquidation-content');
+        const prompt = content?.querySelector('.terminal-prompt');
+        if (!content || !prompt) {
+          resolve();
+          return;
+        }
+
+        const line = document.createElement('div');
+        line.className = 'terminal-line';
+        if (lineObj.isHuge) line.classList.add('huge');
+        line.classList.add(lineObj.side === 'LONG' ? 'long' : 'short');
+        content.insertBefore(line, prompt);
+
+        let index = 0;
+        const speed = lineObj.isHuge ? 12 : 18;
+
+        function typeChar() {
+          if (index < lineObj.text.length) {
+            line.textContent += lineObj.text[index];
+            index++;
+            content.scrollTop = content.scrollHeight;
+            setTimeout(typeChar, speed);
+            return;
+          }
+
+          while (content.querySelectorAll('.terminal-line').length > MAX_TERMINAL_LINES) {
+            content.querySelector('.terminal-line')?.remove();
+          }
+          resolve();
+        }
+
+        typeChar();
+      });
+    }
+
+    async function processTypingQueue() {
+      if (isTyping || typingQueue.length === 0) return;
+      isTyping = true;
+
+      while (typingQueue.length > 0) {
+        const line = typingQueue.shift();
+        await typeLine(line);
+        await new Promise(resolve => setTimeout(resolve, 80));
+      }
+
+      isTyping = false;
+    }
+
     function handleLiquidationData(liquidation) {
       if (!liquidation?.p || !liquidation?.q) return;
+
       const price = parseFloat(liquidation.p);
       const quantity = parseFloat(liquidation.q);
       const liqValue = price * quantity;
+      if (!Number.isFinite(liqValue)) return;
 
       liquidationValues.push(liqValue);
       if (liquidationValues.length > MAX_LIQUIDATIONS_MEMORY) liquidationValues.shift();
 
-      const symbol = liquidation.s;
+      const symbol = liquidation.s || 'UNKNOWN';
       const side = liquidation.S || 'SELL';
 
       if (!liquidationFrequency[symbol]) liquidationFrequency[symbol] = { count: 0, total: 0 };
       liquidationFrequency[symbol].count++;
       liquidationFrequency[symbol].total += liqValue;
 
-      if (side === 'SELL') longTotal += liqValue; else shortTotal += liqValue;
-      if (liqValue > largestLiquidation.amount) largestLiquidation = { amount: liqValue, symbol, side };
+      if (side === 'SELL') longTotal += liqValue;
+      else shortTotal += liqValue;
+
+      if (liqValue > largestLiquidation.amount) {
+        largestLiquidation = { amount: liqValue, symbol, side };
+      }
 
       liquidations.unshift({ symbol, price, quantity, side });
       if (liquidations.length > MAX_LIQUIDATIONS_MEMORY) liquidations.pop();
-      renderQueue.push(liquidation);
-    }
 
-    function processRenderQueue() {
-      if (renderQueue.length === 0) { updatePending = false; return; }
-      const content = document.getElementById('liquidation-content');
-      const fragment = document.createDocumentFragment();
-      const max = Math.min(MAX_LIQUIDATIONS_PER_FRAME, renderQueue.length);
+      const lineObj = formatLiquidationLine(liquidation);
+      typingQueue.push(lineObj);
 
-      for (let i = 0; i < max; i++) {
-        const liq = renderQueue.shift();
-        const price = parseFloat(liq.p);
-        const quantity = parseFloat(liq.q);
-        const val = price * quantity;
-        const item = document.createElement('div');
-        item.className = 'liquidation-item';
-        if (isHugeLiquidation(val)) item.classList.add('huge');
-        item.innerHTML = `<span>${liq.s}</span><span>$${price.toFixed(2)}</span><span>${quantity.toFixed(2)} ($${(val/1000).toFixed(1)}k)</span>`;
-        item.style.color = (liq.S || 'SELL') === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
-        fragment.prepend(item);
-        if (isHugeLiquidation(val)) triggerHugeAlert(liq.S || 'SELL');
-      }
-      content.prepend(fragment);
-      while (content.children.length > MAX_LIQUIDATIONS) content.removeChild(content.lastChild);
+      if (lineObj.isHuge) triggerHugeAlert(side);
+
+      processTypingQueue();
       updateStatsPanel();
       updateTop3();
-      if (renderQueue.length > 0) requestAnimationFrame(processRenderQueue); else updatePending = false;
     }
 
     function triggerHugeAlert(side) {
@@ -591,7 +689,6 @@
         if (data.o) {
           updateWSLED(null, true);
           handleLiquidationData(data.o);
-          if (!updatePending) { updatePending = true; requestAnimationFrame(processRenderQueue); }
         }
       };
       ws.onclose = () => { updateWSLED('reconnecting'); setTimeout(connectLiquidationWebSocket, 1500); };
