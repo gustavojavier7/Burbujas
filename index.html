@@ -584,7 +584,7 @@
 
     function connectLiquidationWebSocket() {
       updateWSLED('connecting');
-      const ws = new WebSocket('wss://fstream.binance.com/ws/!forceOrder@arr');
+      const ws = new WebSocket('wss://fstream.binance.com/market/ws/!forceOrder@arr');
       ws.onopen = () => { updateWSLED('connected'); console.log("Liq connected"); };
       ws.onmessage = event => {
         const data = JSON.parse(event.data);
