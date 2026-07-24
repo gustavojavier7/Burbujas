@@ -144,9 +144,33 @@
       width: 8px;
       height: 8px;
       border-radius: 50%;
+      display: inline-block;
     }
     .status.connected { background: var(--color-long); box-shadow: 0 0 8px var(--color-long); }
+    .status.reconnecting { background: var(--led-reconnect); animation: led-reconnect 1.2s infinite alternate; }
     .status.disconnected { background: var(--color-short); }
+    .exchange-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-muted);
+      font-size: 0.68em;
+    }
+    .system-console {
+      margin-top: 15px;
+      min-height: 92px;
+      max-height: 150px;
+      overflow-y: auto;
+      padding: 10px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: #0c0c0c;
+      color: #94a3b8;
+      font: 0.72em/1.45 'JetBrains Mono', monospace;
+    }
+    .console-line.error { color: #ff6b6b; }
+    .console-line.warning { color: #facc15; }
+    .console-line.info { color: #7dd3fc; }
     
     .price {
       font-family: 'JetBrains Mono', monospace;
@@ -341,7 +365,7 @@
           <div class="terminal-title">liquidation-monitor — bash</div>
           <div class="ws-led-container">
             <div id="ws-led" class="ws-led"></div>
-            <span id="ws-status">Connecting...</span>
+            <span id="ws-status">Conectando...</span>
           </div>
         </div>
 
@@ -380,31 +404,34 @@
           <div class="price-card" id="binanceRealtime">
             <div class="card-header">
               <span class="exchange-name">Binance Spot</span>
-              <span class="status disconnected" id="binanceRealtimeStatus"></span>
+              <span class="exchange-status"><span class="status disconnected" id="binanceRealtimeStatus"></span><span id="binanceRealtimeStatusText">Desconectado</span></span>
             </div>
             <div class="price loading" id="binanceRealtimePrice">Conectando...</div>
           </div>
           <div class="price-card" id="coinbase">
             <div class="card-header">
               <span class="exchange-name">Coinbase Pro</span>
-              <span class="status disconnected" id="coinbaseStatus"></span>
+              <span class="exchange-status"><span class="status disconnected" id="coinbaseStatus"></span><span id="coinbaseStatusText">Desconectado</span></span>
             </div>
             <div class="price loading" id="coinbasePrice">Conectando...</div>
           </div>
           <div class="price-card" id="kraken">
             <div class="card-header">
               <span class="exchange-name">Kraken</span>
-              <span class="status disconnected" id="krakenStatus"></span>
+              <span class="exchange-status"><span class="status disconnected" id="krakenStatus"></span><span id="krakenStatusText">Desconectado</span></span>
             </div>
             <div class="price loading" id="krakenPrice">Conectando...</div>
           </div>
           <div class="price-card" id="bitfinex">
             <div class="card-header">
               <span class="exchange-name">Bitfinex</span>
-              <span class="status disconnected" id="bitfinexStatus"></span>
+              <span class="exchange-status"><span class="status disconnected" id="bitfinexStatus"></span><span id="bitfinexStatusText">Desconectado</span></span>
             </div>
             <div class="price loading" id="bitfinexPrice">Conectando...</div>
           </div>
+        </div>
+        <div class="system-console" id="system-console" role="log" aria-live="polite">
+          <div class="console-line info">[SISTEMA] Consola iniciada.</div>
         </div>
       </div>
 
@@ -452,15 +479,13 @@
   <script>
     const MAX_LIQUIDATIONS_MEMORY = 100;
     const MAX_TERMINAL_LINES = 80;
+    const MAX_TYPING_QUEUE = 120;
+    const MAX_CONSOLE_LINES = 60;
+    const RECONNECT_BASE_MS = 1500;
+    const RECONNECT_MAX_MS = 30000;
 
     // --- ESTADO GLOBAL ---
     let liquidations = [];
-    let liquidationValues = [];
-    let liquidationFrequency = {};
-    let longTotal = 0;
-    let shortTotal = 0;
-    let largestLiquidation = { amount: 0, symbol: '', side: '' };
-    let currentTop3 = [];
     let typingQueue = [];
     let isTyping = false;
     const RECENT_WINDOW_MS = 7500;
@@ -475,7 +500,8 @@
       config.websockets.forEach(key => {
         elements[key] = {
           price: document.getElementById(`${key}Price`),
-          status: document.getElementById(`${key}Status`)
+          status: document.getElementById(`${key}Status`),
+          statusText: document.getElementById(`${key}StatusText`)
         };
         preciosAnteriores[key] = null;
       });
@@ -498,38 +524,93 @@
       }
     }
 
-    function updateConnectionStatus(key, isConnected) {
-      const statusEl = elements[key].status;
-      if (statusEl) {
-        statusEl.classList.toggle('connected', isConnected);
-        statusEl.classList.toggle('disconnected', !isConnected);
-      }
+    function logToConsole(message, level = 'info') {
+      const consoleEl = document.getElementById('system-console');
+      if (!consoleEl) return;
+      const line = document.createElement('div');
+      line.className = `console-line ${level}`;
+      line.textContent = `[${new Date().toLocaleTimeString('es-AR', { hour12: false })}] ${message}`;
+      consoleEl.appendChild(line);
+      while (consoleEl.children.length > MAX_CONSOLE_LINES) consoleEl.firstElementChild?.remove();
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function updateConnectionStatus(key, state) {
+      const item = elements[key];
+      if (!item?.status) return;
+      item.status.classList.remove('connected', 'reconnecting', 'disconnected');
+      item.status.classList.add(state);
+      const labels = {
+        connected: 'Conectado',
+        reconnecting: 'Reconectando',
+        disconnected: 'Desconectado'
+      };
+      const label = labels[state] || labels.disconnected;
+      if (item.statusText) item.statusText.textContent = label;
+      item.status.setAttribute('aria-label', label);
+      item.status.title = label;
     }
 
     function setupPriceWebSocket(key, url, subscription, processData) {
-      try {
-        const ws = new WebSocket(url);
+      let reconnectAttempt = 0;
+      let reconnectTimer = null;
+
+      const scheduleReconnect = () => {
+        if (reconnectTimer) return;
+        reconnectAttempt++;
+        const base = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * (2 ** Math.min(reconnectAttempt - 1, 5)));
+        const delay = Math.round(base * (0.8 + Math.random() * 0.4));
+        updateConnectionStatus(key, 'reconnecting');
+        logToConsole(`${key}: reconexión en ${(delay / 1000).toFixed(1)} s.`, 'warning');
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          connect();
+        }, delay);
+      };
+
+      const connect = () => {
+        let ws;
+        try {
+          ws = new WebSocket(url);
+        } catch (err) {
+          updateConnectionStatus(key, 'disconnected');
+          logToConsole(`${key}: no se pudo crear la conexión (${err.message}).`, 'error');
+          scheduleReconnect();
+          return;
+        }
         ws.onopen = () => {
-          console.log(`${key} price connected`);
-          updateConnectionStatus(key, true);
-          if (subscription) ws.send(JSON.stringify(subscription));
+          reconnectAttempt = 0;
+          updateConnectionStatus(key, 'connected');
+          logToConsole(`${key}: conectado.`);
+          try {
+            if (subscription) ws.send(JSON.stringify(subscription));
+          } catch (err) {
+            logToConsole(`${key}: falló la suscripción (${err.message}).`, 'error');
+            ws.close();
+          }
         };
         ws.onmessage = event => {
           try {
             const data = JSON.parse(event.data);
             const price = processData(data);
             if (price && !isNaN(price)) updatePriceColor(key, price);
-          } catch (err) {}
+          } catch (err) {
+            logToConsole(`${key}: mensaje inválido (${err.message}).`, 'error');
+          }
         };
         ws.onclose = () => {
-          updateConnectionStatus(key, false);
-          setTimeout(() => setupPriceWebSocket(key, url, subscription, processData), 5000);
+          updateConnectionStatus(key, 'disconnected');
+          scheduleReconnect();
         };
-        ws.onerror = () => updateConnectionStatus(key, false);
-        return ws;
-      } catch (err) {
-        updateConnectionStatus(key, false);
-      }
+        ws.onerror = () => {
+          updateConnectionStatus(key, 'disconnected');
+          logToConsole(`${key}: error de WebSocket.`, 'error');
+          try { ws.close(); } catch (err) {}
+          scheduleReconnect();
+        };
+      };
+
+      connect();
     }
 
     function initializePriceWebSockets() {
@@ -552,13 +633,13 @@
 
     // --- LÓGICA DE LIQUIDACIONES ---
     function calculateAverageLiquidation() {
-      if (liquidationValues.length === 0) return 0;
-      return liquidationValues.reduce((acc, val) => acc + val, 0) / liquidationValues.length;
+      if (liquidations.length === 0) return 0;
+      return liquidations.reduce((sum, item) => sum + item.value, 0) / liquidations.length;
     }
 
     function isHugeLiquidation(value) {
       const avg = calculateAverageLiquidation();
-      return liquidationValues.length < 10 ? value > 50000 : value > (avg * 1.5);
+      return liquidations.length < 10 ? value > 50000 : value > (avg * 1.5);
     }
 
     function updateWSLED(status, isActivity = false) {
@@ -577,19 +658,20 @@
       led.classList.remove('active', 'reconnecting', 'disconnected');
       if (status === 'connecting') {
         led.style.background = '#000';
-        statusText.textContent = 'Connecting...';
+        statusText.textContent = 'Conectando...';
         statusText.style.color = 'var(--text-muted)';
       } else if (status === 'connected') {
-        led.style.background = '#000';
-        statusText.textContent = 'Connected';
+        led.style.background = '';
+        led.classList.add('active');
+        statusText.textContent = 'Conectado';
         statusText.style.color = 'var(--led-on)';
       } else if (status === 'reconnecting') {
         led.classList.add('reconnecting');
-        statusText.textContent = 'Reconnecting...';
+        statusText.textContent = 'Reconectando...';
         statusText.style.color = 'var(--led-reconnect)';
       } else if (status === 'disconnected') {
         led.classList.add('disconnected');
-        statusText.textContent = 'Disconnected';
+        statusText.textContent = 'Desconectado';
         statusText.style.color = 'var(--led-disconnected)';
       }
     }
@@ -622,7 +704,11 @@
       const value = price * qty;
       const side = (liq.S || 'SELL') === 'SELL' ? 'LONG' : 'SHORT';
       const symbol = String(liq.s || 'UNKNOWN');
-      const time = new Date().toLocaleTimeString('es-AR', { hour12: false });
+      const eventTimestamp = Number(liq.T || liq.E);
+      const eventDate = Number.isFinite(eventTimestamp) && eventTimestamp > 0
+        ? new Date(eventTimestamp)
+        : new Date();
+      const time = eventDate.toLocaleTimeString('es-AR', { hour12: false });
       const amount = value >= 1000 ? `$${(value / 1000).toFixed(1)}k` : `$${value.toFixed(0)}`;
 
       const text = `[${time}] ${symbol.padEnd(10)} ${side.padEnd(5)}  ${qty.toFixed(3).padStart(8)}  →  ${amount.padStart(8)}  @ ${price.toFixed(2)}`;
@@ -695,24 +781,9 @@
       const liqValue = price * quantity;
       if (!Number.isFinite(liqValue)) return;
 
-      liquidationValues.push(liqValue);
-      if (liquidationValues.length > MAX_LIQUIDATIONS_MEMORY) liquidationValues.shift();
-
       const symbol = liquidation.s || 'UNKNOWN';
       const side = liquidation.S || 'SELL';
-
-      if (!liquidationFrequency[symbol]) liquidationFrequency[symbol] = { count: 0, total: 0 };
-      liquidationFrequency[symbol].count++;
-      liquidationFrequency[symbol].total += liqValue;
-
-      if (side === 'SELL') longTotal += liqValue;
-      else shortTotal += liqValue;
-
-      if (liqValue > largestLiquidation.amount) {
-        largestLiquidation = { amount: liqValue, symbol, side };
-      }
-
-      liquidations.unshift({ symbol, price, quantity, side });
+      liquidations.unshift({ symbol, price, quantity, side, value: liqValue });
       if (liquidations.length > MAX_LIQUIDATIONS_MEMORY) liquidations.pop();
 
       const lineObj = formatLiquidationLine(liquidation);
@@ -721,25 +792,34 @@
         chars: lineObj.chars
       });
       typingQueue.push(lineObj);
+      if (typingQueue.length > MAX_TYPING_QUEUE) {
+        const discarded = typingQueue.length - MAX_TYPING_QUEUE;
+        typingQueue.splice(0, discarded);
+        logToConsole(`Terminal saturada: se descartaron ${discarded} línea(s) antiguas.`, 'warning');
+      }
 
-      if (lineObj.isHuge) triggerHugeAlert(side);
+      if (lineObj.isHuge) triggerHugeVisual(side);
 
       processTypingQueue();
       updateStatsPanel();
       updateTop3();
     }
 
-    function triggerHugeAlert(side) {
-      const audio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-alert-quick-chime-766.mp3');
-      audio.volume = 0.2; audio.play().catch(() => {});
+    function triggerHugeVisual(side) {
       const box = document.querySelector('.liquidation-box');
+      if (!box) return;
       box.style.borderColor = side === 'SELL' ? 'var(--color-long)' : 'var(--color-short)';
       setTimeout(() => box.style.borderColor = 'var(--border-color)', 500);
     }
 
     function updateTop3() {
-      const top = Object.entries(liquidationFrequency).sort((a, b) => b[1].count - a[1].count).slice(0, 3);
-      currentTop3 = top.map(([s]) => s);
+      const frequency = {};
+      liquidations.forEach(item => {
+        if (!frequency[item.symbol]) frequency[item.symbol] = { count: 0, total: 0 };
+        frequency[item.symbol].count++;
+        frequency[item.symbol].total += item.value;
+      });
+      const top = Object.entries(frequency).sort((a, b) => b[1].count - a[1].count).slice(0, 3);
       const content = document.getElementById('top-liquidated-content');
       if (!content) return;
       content.replaceChildren();
@@ -786,6 +866,18 @@
     }
 
     function updateStatsPanel() {
+      const longTotal = liquidations
+        .filter(item => item.side === 'SELL')
+        .reduce((sum, item) => sum + item.value, 0);
+      const shortTotal = liquidations
+        .filter(item => item.side !== 'SELL')
+        .reduce((sum, item) => sum + item.value, 0);
+      const largestLiquidation = liquidations.reduce(
+        (largest, item) => item.value > largest.amount
+          ? { amount: item.value, symbol: item.symbol, side: item.side }
+          : largest,
+        { amount: 0, symbol: '', side: '' }
+      );
       const total = longTotal + shortTotal;
       const lp = total > 0 ? ((longTotal/total)*100).toFixed(1) : 0;
       const sp = total > 0 ? ((shortTotal/total)*100).toFixed(1) : 0;
@@ -797,24 +889,63 @@
       document.getElementById('largest-liquidation').className = 'stats-value highlight ' + (largestLiquidation.side === 'SELL' ? 'long-color' : 'short-color');
       document.getElementById('total-count').textContent = liquidations.length;
       const thresh = calculateAverageLiquidation() * 1.5;
-      document.getElementById('huge-threshold').textContent = liquidationValues.length >= 10 ? `$${(thresh/1000).toFixed(1)}k` : '$50k (calibrando...)';
+      document.getElementById('huge-threshold').textContent = liquidations.length >= 10 ? `$${(thresh/1000).toFixed(1)}k` : '$50k (calibrando...)';
       const rBar = document.getElementById('ratio-bar');
       if (rBar) rBar.style.width = total > 0 ? (longTotal/total*100) + '%' : '50%';
     }
 
     function connectLiquidationWebSocket() {
-      updateWSLED('connecting');
-      const ws = new WebSocket('wss://fstream.binance.com/market/ws/!forceOrder@arr');
-      ws.onopen = () => { updateWSLED('connected'); console.log("Liq connected"); };
-      ws.onmessage = event => {
-        const data = JSON.parse(event.data);
-        if (data.o) {
-          updateWSLED(null, true);
-          handleLiquidationData(data.o);
-        }
+      let reconnectAttempt = 0;
+      let reconnectTimer = null;
+
+      const scheduleReconnect = () => {
+        if (reconnectTimer) return;
+        reconnectAttempt++;
+        const base = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * (2 ** Math.min(reconnectAttempt - 1, 5)));
+        const delay = Math.round(base * (0.8 + Math.random() * 0.4));
+        updateWSLED('reconnecting');
+        logToConsole(`Liquidaciones: reconexión en ${(delay / 1000).toFixed(1)} s.`, 'warning');
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          connect();
+        }, delay);
       };
-      ws.onclose = () => { updateWSLED('reconnecting'); setTimeout(connectLiquidationWebSocket, 1500); };
-      ws.onerror = () => updateWSLED('disconnected');
+
+      const connect = () => {
+        updateWSLED('connecting');
+        let ws;
+        try {
+          ws = new WebSocket('wss://fstream.binance.com/public/ws/!forceOrder@arr');
+        } catch (err) {
+          updateWSLED('disconnected');
+          logToConsole(`Liquidaciones: no se pudo crear la conexión (${err.message}).`, 'error');
+          scheduleReconnect();
+          return;
+        }
+        ws.onopen = () => {
+          reconnectAttempt = 0;
+          updateWSLED('connected');
+          logToConsole('Liquidaciones: conectado.');
+        };
+        ws.onmessage = event => {
+          try {
+            const data = JSON.parse(event.data);
+            const order = data?.o || data?.data?.o;
+            if (order) handleLiquidationData(order);
+          } catch (err) {
+            logToConsole(`Liquidaciones: mensaje inválido (${err.message}).`, 'error');
+          }
+        };
+        ws.onclose = scheduleReconnect;
+        ws.onerror = () => {
+          updateWSLED('disconnected');
+          logToConsole('Liquidaciones: error de WebSocket.', 'error');
+          try { ws.close(); } catch (err) {}
+          scheduleReconnect();
+        };
+      };
+
+      connect();
     }
 
     document.addEventListener('DOMContentLoaded', () => {
