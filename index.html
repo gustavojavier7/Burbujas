@@ -915,7 +915,7 @@
         updateWSLED('connecting');
         let ws;
         try {
-          ws = new WebSocket('wss://fstream.binance.com/public/ws/!forceOrder@arr');
+          ws = new WebSocket('wss://fstream.binance.com/market/ws/!forceOrder@arr');
         } catch (err) {
           updateWSLED('disconnected');
           logToConsole(`Liquidaciones: no se pudo crear la conexión (${err.message}).`, 'error');
